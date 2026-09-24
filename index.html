@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#758ca1" />
+    <title>Volvo V70 Garage Drive</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="scene" aria-label="Drive the black Volvo in a garage courtyard"></canvas>
+      <header class="topbar">
+        <div class="brand"><span class="brand-badge">V</span><span>VOLVO <strong>V70</strong></span></div>
+        <div class="top-actions"><button id="sound-toggle" class="sound-toggle" type="button" aria-label="Mute sounds" aria-pressed="false">🔊</button><button id="reset" class="reset" type="button" aria-label="Restart level"><span aria-hidden="true">↻</span> Restart</button></div>
+      </header>
+      <div class="level-hint" id="level-hint"><span id="level-number">Level 1 / 20</span><strong id="goal-instruction">Catch the star!</strong><span class="star-progress" id="star-progress" aria-label="Stars collected">⭐ 0/1</span><span class="level-time" id="level-time">0:00</span></div>
+      <div id="loading" class="loading"><span class="spinner"></span> Getting your car ready...</div>
+      <div class="instruction" id="instruction"><span class="hand" aria-hidden="true">☝</span><span><strong>Drag to drive</strong><small>Keep holding to keep driving</small></span></div>
+      <div class="crash-feedback" id="crash-feedback" role="status" aria-live="assertive" hidden><div class="crash-message"><span aria-hidden="true">✦</span><strong>Oops!</strong><small>Trying again...</small></div></div>
+      <div class="win-screen" id="win-screen" hidden>
+        <div class="win-card" role="dialog" aria-labelledby="win-title" aria-modal="true">
+          <div class="win-stars" id="win-stars" aria-label="Three stars"></div>
+          <h1 id="win-title">Great driving!</h1>
+          <p id="win-level">Level 1 complete</p>
+          <p class="win-time" id="win-time">Time: 0:00</p>
+          <div class="win-actions">
+            <button id="next-level" type="button">Next level <span aria-hidden="true">➜</span></button>
+            <button id="retry-level" type="button">Retry level <span aria-hidden="true">↻</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
