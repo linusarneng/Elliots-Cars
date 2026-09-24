@@ -1,14 +1,18 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createBobbyCar } from './bobbyCar.js';
+import { createOpenWorld } from './openWorld.js';
 import carUrl from '../volvo_v70.glb?url';
 import './style.css';
 
 const canvas = document.querySelector('#scene');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
+let pixelRatio = Math.min(window.devicePixelRatio, 1.5);
+renderer.setPixelRatio(pixelRatio);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.28;
@@ -29,6 +33,44 @@ sun.shadow.camera.top = 65;
 sun.shadow.camera.bottom = -65;
 sun.shadow.normalBias = 0.025;
 scene.add(sun, sun.target);
+
+// Every separate mesh costs a draw call (twice with shadows). Scenery never moves, so
+// bake all meshes that share a material into one mesh to keep phones and iPads smooth.
+function mergeStatic(root, keep = []) {
+  root.updateMatrixWorld(true);
+  const rootInverse = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const kept = new Set();
+  for (const object of keep) object.traverse((child) => kept.add(child));
+  const buckets = new Map();
+  root.traverse((mesh) => {
+    if (!mesh.isMesh || mesh.isSkinnedMesh || kept.has(mesh) || Array.isArray(mesh.material)) return;
+    if (Object.keys(mesh.geometry.morphAttributes).length) return;
+    const names = Object.keys(mesh.geometry.attributes).sort();
+    const signature = names.map((name) => {
+      const attribute = mesh.geometry.attributes[name];
+      return `${name}:${attribute.itemSize}:${attribute.normalized}:${attribute.array.constructor.name}`;
+    }).join(',');
+    const key = `${mesh.material.uuid}|${mesh.castShadow}|${mesh.receiveShadow}|${mesh.geometry.index ? 'i' : 'n'}|${signature}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(mesh);
+  });
+  for (const meshes of buckets.values()) {
+    if (meshes.length < 2) continue;
+    const geometries = meshes.map((mesh) => {
+      const geometry = new THREE.BufferGeometry();
+      for (const [name, attribute] of Object.entries(mesh.geometry.attributes)) geometry.setAttribute(name, attribute.clone());
+      if (mesh.geometry.index) geometry.setIndex(mesh.geometry.index.clone());
+      return geometry.applyMatrix4(new THREE.Matrix4().multiplyMatrices(rootInverse, mesh.matrixWorld));
+    });
+    const merged = mergeGeometries(geometries);
+    if (!merged) continue;
+    const mesh = new THREE.Mesh(merged, meshes[0].material);
+    mesh.castShadow = meshes[0].castShadow;
+    mesh.receiveShadow = meshes[0].receiveShadow;
+    for (const original of meshes) original.removeFromParent();
+    root.add(mesh);
+  }
+}
 
 let seed = 29;
 function random() { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; }
@@ -199,7 +241,7 @@ const storeEnvironment = new THREE.Group();
 scene.add(storeEnvironment);
 const storeWall = new THREE.MeshStandardMaterial({ color: '#f0e8d8', roughness: 0.82 });
 const storeRoof = new THREE.MeshStandardMaterial({ color: '#4e879a', roughness: 0.7 });
-const storeAwning = new THREE.MeshStandardMaterial({ color: '#edaa58', roughness: 0.72 });
+const storeAwning = new THREE.MeshStandardMaterial({ color: '#e3000b', roughness: 0.72 });
 box(storeEnvironment, 46, 6, 9, storeWall, 5, 3, -11);
 box(storeEnvironment, 46.5, 0.34, 9.5, storeRoof, 5, 6.08, -11);
 box(storeEnvironment, 43, 0.3, 1.2, storeAwning, 5, 4.04, -5.9);
@@ -211,13 +253,17 @@ storeSignCanvas.height = 256;
 const storeSignContext = storeSignCanvas.getContext('2d');
 {
   const ctx = storeSignContext;
-  ctx.fillStyle = '#2c667b';
+  // Swedish ICA supermarket: white italic lettering on ICA red.
+  ctx.fillStyle = '#e3000b';
   ctx.fillRect(0, 0, 1024, 256);
-  ctx.fillStyle = '#fff5dc';
-  ctx.font = 'bold 130px Arial';
-  ctx.textAlign = 'center';
+  ctx.fillStyle = '#ffffff';
   ctx.textBaseline = 'middle';
-  ctx.fillText('SUNNY MARKET', 512, 128);
+  ctx.textAlign = 'right';
+  ctx.font = 'italic 900 190px Arial';
+  ctx.fillText('ICA', 385, 132);
+  ctx.textAlign = 'left';
+  ctx.font = 'italic bold 92px Arial';
+  ctx.fillText('Supermarket', 412, 140);
 }
 const storeSignTexture = new THREE.CanvasTexture(storeSignCanvas);
 storeSignTexture.colorSpace = THREE.SRGBColorSpace;
@@ -245,6 +291,77 @@ for (const x of [-14, 24]) {
   box(storeEnvironment, 3.3, 0.55, 1.3, planter, x, 0.27, -2);
   box(storeEnvironment, 3.05, 0.9, 1.1, new THREE.MeshStandardMaterial({ color: '#5d8746', roughness: 1 }), x, 0.75, -2);
 }
+
+const mcdonaldsEnvironment = new THREE.Group();
+scene.add(mcdonaldsEnvironment);
+const mcdRed = new THREE.MeshStandardMaterial({ color: '#c8161d', roughness: 0.7 });
+const mcdYellow = new THREE.MeshStandardMaterial({ color: '#ffc72c', roughness: 0.6 });
+const mcdBrick = new THREE.MeshStandardMaterial({ color: '#8f3b2b', roughness: 0.9 });
+// The golden arches: two arches side by side, both legs reaching the baseline.
+function drawArches(ctx, centerX, baseY, width, height, lineWidth) {
+  const left = centerX - width / 2;
+  const half = width / 2;
+  ctx.strokeStyle = '#ffc72c';
+  ctx.lineWidth = lineWidth;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  for (const start of [left, centerX]) {
+    ctx.moveTo(start, baseY);
+    ctx.bezierCurveTo(start + half * 0.04, baseY - height * 1.33, start + half * 0.96, baseY - height * 1.33, start + half, baseY);
+  }
+  ctx.stroke();
+}
+const mcdSignCanvas = document.createElement('canvas');
+mcdSignCanvas.width = 1024;
+mcdSignCanvas.height = 256;
+{
+  const ctx = mcdSignCanvas.getContext('2d');
+  ctx.fillStyle = '#c8161d';
+  ctx.fillRect(0, 0, 1024, 256);
+  drawArches(ctx, 150, 222, 190, 170, 30);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 128px Arial';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText("McDonald's", 290, 136);
+}
+const mcdSignTexture = new THREE.CanvasTexture(mcdSignCanvas);
+mcdSignTexture.colorSpace = THREE.SRGBColorSpace;
+const archesTexture = canvasTexture(256, (ctx, size) => {
+  ctx.fillStyle = '#c8161d';
+  ctx.fillRect(0, 0, size, size);
+  drawArches(ctx, size / 2, size * 0.86, size * 0.78, size * 0.58, size * 0.13);
+});
+archesTexture.colorSpace = THREE.SRGBColorSpace;
+// Restaurant along the back of the lot, same footprint depth as the supermarket.
+box(mcdonaldsEnvironment, 30, 5, 9, mcdBrick, 5, 2.5, -11);
+box(mcdonaldsEnvironment, 31, 1.3, 9.8, mcdYellow, 5, 5.55, -11);
+box(mcdonaldsEnvironment, 31.4, 0.3, 10.2, mcdRed, 5, 6.3, -11);
+box(mcdonaldsEnvironment, 26, 3.1, 0.14, glass, 5, 1.85, -6.43, false);
+for (let x = -8; x <= 18; x += 4.33) box(mcdonaldsEnvironment, 0.18, 3.2, 0.2, trim, x, 1.85, -6.3);
+box(mcdonaldsEnvironment, 28, 0.25, 1.3, mcdRed, 5, 3.6, -5.9);
+const mcdSign = new THREE.Mesh(new THREE.PlaneGeometry(11, 2.75), new THREE.MeshBasicMaterial({ map: mcdSignTexture }));
+mcdSign.position.set(5, 5.55, -6.08);
+mcdonaldsEnvironment.add(mcdSign);
+// Tall arches sign by the road so the restaurant is recognisable from far away.
+box(mcdonaldsEnvironment, 0.45, 9, 0.45, new THREE.MeshStandardMaterial({ color: '#9aa3a6', metalness: 0.55, roughness: 0.45 }), -19.5, 4.5, 6);
+const archesSign = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 4.2), new THREE.MeshBasicMaterial({ map: archesTexture, side: THREE.DoubleSide }));
+archesSign.position.set(-19.5, 10.4, 6.3);
+mcdonaldsEnvironment.add(archesSign);
+// Drive-thru lane on the right side of the building.
+box(mcdonaldsEnvironment, 5, 0.012, 12, new THREE.MeshBasicMaterial({ color: '#6f7479' }), 23.5, 0.02, -11, false);
+box(mcdonaldsEnvironment, 1.6, 2.6, 0.9, mcdRed, 21.2, 1.3, -8.4);
+const driveThruSign = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: archesTexture }));
+driveThruSign.position.set(21.2, 2, -7.94);
+mcdonaldsEnvironment.add(driveThruSign);
+const mcdLine = new THREE.MeshBasicMaterial({ color: '#f2eee2' });
+for (const x of [-13, -7, -1, 5, 11, 17, 23]) box(mcdonaldsEnvironment, 0.1, 0.012, 7.6, mcdLine, x, 0.03, 4);
+for (const z of [0, 8]) box(mcdonaldsEnvironment, 36, 0.012, 0.1, mcdLine, 5, 0.03, z);
+for (const x of [-12.5, 22.5]) {
+  box(mcdonaldsEnvironment, 3.3, 0.55, 1.3, mcdYellow, x, 0.27, -2);
+  box(mcdonaldsEnvironment, 3.05, 0.9, 1.1, new THREE.MeshStandardMaterial({ color: '#5d8746', roughness: 1 }), x, 0.75, -2);
+}
+mcdonaldsEnvironment.visible = false;
 
 const roundaboutEnvironment = new THREE.Group();
 scene.add(roundaboutEnvironment);
@@ -532,11 +649,15 @@ const boundaryBlue = new THREE.MeshStandardMaterial({ color: '#8ba6aa', roughnes
 const boundaryLeaf = new THREE.MeshStandardMaterial({ color: '#6c965a', roughness: 1 });
 const boundaryGrass = new THREE.MeshStandardMaterial({ color: '#85a56d', roughness: 1 });
 const flowerColors = ['#fff0a8', '#f4a5a5', '#f4d7fa', '#ffffff'].map(color => new THREE.MeshStandardMaterial({ color, roughness: 0.9 }));
-function boundary(parent, material, style, closeFront = false) {
+function boundary(environment, material, style, closeFront = false) {
+  // Kept in its own group so the open world can leave the fences out.
+  const parent = new THREE.Group();
+  parent.name = 'boundary';
+  environment.add(parent);
   const sideX = [-16.15, 26.15];
   for (const x of sideX) {
-    const segments = x < 0 && parent === garageEnvironment ? [[-17, 9]]
-      : x < 0 && parent === storeEnvironment ? [[-17, 7], [17, 25]] : [[-17, 25]];
+    const segments = x < 0 && environment === garageEnvironment ? [[-17, 9]]
+      : x < 0 && environment === storeEnvironment ? [[-17, 7], [17, 25]] : [[-17, 25]];
     for (const [start, end] of segments) {
       const middle = (start + end) / 2;
       const length = end - start;
@@ -565,6 +686,7 @@ function boundary(parent, material, style, closeFront = false) {
 boundary(garageEnvironment, boundaryWood, 'fence');
 boundary(storeEnvironment, boundaryBlue, 'fence');
 boundary(roundaboutEnvironment, boundaryStone, 'hedge', true);
+boundary(mcdonaldsEnvironment, mcdRed, 'fence');
 
 function smallHouse(parent, x, z, wallColor, roofColor, size = 1) {
   const group = new THREE.Group();
@@ -593,6 +715,10 @@ for (const [x, z, wall, roofColor] of [
   [37, 29, '#c5d9df', '#5f8593'], [-28, 33, '#ebd9bc', '#8da6a1'],
 ]) smallHouse(storeEnvironment, x, z, wall, roofColor, 0.9);
 for (const [x, z, wall, roofColor] of [
+  [37, -9, '#e8dcc6', '#8a5a4a'], [38, 10, '#cfdcd6', '#6f8a86'],
+  [37, 29, '#e6d0bb', '#9b5e50'], [-28, 33, '#d4dde2', '#6d8290'],
+]) smallHouse(mcdonaldsEnvironment, x, z, wall, roofColor, 0.9);
+for (const [x, z, wall, roofColor] of [
   [-27, -12, '#e6ceb9', '#a76556'], [-28, 11, '#b9d1d8', '#6d8290'],
   [-28, 31, '#f0dfc9', '#9f695d'], [37, -12, '#d8d8c5', '#879875'],
   [38, 9, '#d8c4b5', '#a8705a'], [37, 30, '#c1d3d3', '#748c96'],
@@ -614,6 +740,8 @@ function roadsideTree(parent, x, z, scale = 1) {
 }
 for (const z of [-14, 2, 18, 35]) roadsideTree(garageEnvironment, 30.5, z, 0.72);
 for (const z of [-17, 3, 22]) roadsideTree(storeEnvironment, 32, z, 0.72);
+for (const z of [-15, 1, 20]) roadsideTree(mcdonaldsEnvironment, 32, z, 0.72);
+for (const z of [-10, 20]) roadsideTree(mcdonaldsEnvironment, -21, z, 0.66);
 for (const z of [-13, 3, 20, 34]) roadsideTree(roundaboutEnvironment, 31.5, z, 0.78);
 for (const z of [-8, 13, 32]) roadsideTree(roundaboutEnvironment, -21.5, z, 0.68);
 for (let i = 0; i < 22; i++) {
@@ -639,6 +767,7 @@ function streetLamp(parent, x, z) {
 }
 for (const z of [-3, 19]) streetLamp(garageEnvironment, 27.8, z);
 for (const z of [-2, 19]) streetLamp(storeEnvironment, 28.2, z);
+for (const z of [-2, 19]) streetLamp(mcdonaldsEnvironment, 28.2, z);
 for (const z of [-8, 17]) streetLamp(roundaboutEnvironment, 28.1, z);
 
 const poleMaterial = new THREE.MeshStandardMaterial({ color: '#c4c8c6', metalness: 0.6, roughness: 0.4 });
@@ -652,6 +781,34 @@ box(scene, 0.85, 0.1, 0.35, new THREE.MeshBasicMaterial({ color: '#f7f5db' }), -
 const car = new THREE.Group();
 car.position.set(0, 0, 8);
 scene.add(car);
+// The player can drive either the Volvo or Elliot on his yellow bobby car.
+const volvoBody = new THREE.Group();
+car.add(volvoBody);
+const bobbyCar = createBobbyCar();
+car.add(bobbyCar.group);
+let vehicle = 'volvo';
+let lastCarYaw = 0;
+let cameraZoom = 1;
+// The bobby car is much smaller than the Volvo, so it can get closer to things before touching them.
+function vehicleShrink() {
+  return vehicle === 'bobby' ? 1.2 : 0;
+}
+try { if (localStorage.getItem('vehicle') === 'bobby') vehicle = 'bobby'; } catch {}
+const vehicleToggle = document.querySelector('#vehicle-toggle');
+function showVehicle() {
+  volvoBody.visible = vehicle === 'volvo';
+  bobbyCar.group.visible = vehicle === 'bobby';
+  vehicleToggle.textContent = vehicle === 'volvo' ? '🧒' : '🚙';
+  vehicleToggle.setAttribute('aria-label', vehicle === 'volvo' ? 'Drive the bobby car' : 'Drive the Volvo');
+  vehicleToggle.title = vehicleToggle.getAttribute('aria-label');
+}
+vehicleToggle.addEventListener('click', () => {
+  vehicle = vehicle === 'volvo' ? 'bobby' : 'volvo';
+  try { localStorage.setItem('vehicle', vehicle); } catch {}
+  showVehicle();
+  vehicleToggle.blur();
+});
+showVehicle();
 const crashSparkGroup = new THREE.Group();
 scene.add(crashSparkGroup);
 const crashSparkGeometry = new THREE.SphereGeometry(0.12, 6, 5);
@@ -673,9 +830,9 @@ const reverseLampMeshes = [];
 const reverseLampLights = [];
 const reverseGlowTexture = canvasTexture(64, (ctx, size) => {
   const glow = ctx.createRadialGradient(size / 2, size / 2, 2, size / 2, size / 2, size / 2);
-  glow.addColorStop(0, 'rgba(255,255,255,1)');
-  glow.addColorStop(0.3, 'rgba(225,244,255,.65)');
-  glow.addColorStop(1, 'rgba(225,244,255,0)');
+  glow.addColorStop(0, 'rgba(255,90,70,1)');
+  glow.addColorStop(0.3, 'rgba(255,30,20,.65)');
+  glow.addColorStop(1, 'rgba(255,0,0,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, size, size);
 });
@@ -699,27 +856,79 @@ new GLTFLoader().load(carUrl, (gltf) => {
     const meshName = gltf.parser.json.meshes[meshIndex]?.name || '';
     if (meshName.startsWith('reversinglight_') && child.material?.emissive) {
       child.material = child.material.clone();
-      child.material.emissive.set('#eaf7ff');
+      child.material.emissive.set('#ff1a0d');
       child.material.emissiveIntensity = 0;
       reverseLampMaterials.push(child.material);
       reverseLampMeshes.push(child);
     }
     child.castShadow = true;
   });
-  car.add(model);
+  // The model is rigged but never animated. Skinning every part each frame is costly on
+  // phones, so bake the resting pose into plain meshes.
+  model.updateMatrixWorld(true);
+  const skinnedMeshes = [];
+  model.traverse((child) => { if (child.isSkinnedMesh) skinnedMeshes.push(child); });
+  const vertex = new THREE.Vector3();
+  const tip = new THREE.Vector3();
+  for (const skinned of skinnedMeshes) {
+    const source = skinned.geometry;
+    const geometry = source.clone();
+    geometry.deleteAttribute('skinIndex');
+    geometry.deleteAttribute('skinWeight');
+    const position = geometry.attributes.position;
+    const normal = geometry.attributes.normal;
+    for (let i = 0; i < position.count; i++) {
+      vertex.fromBufferAttribute(source.attributes.position, i);
+      if (normal) tip.fromBufferAttribute(source.attributes.normal, i).multiplyScalar(0.01).add(vertex);
+      skinned.applyBoneTransform(i, vertex);
+      position.setXYZ(i, vertex.x, vertex.y, vertex.z);
+      if (normal) {
+        skinned.applyBoneTransform(i, tip);
+        tip.sub(vertex).normalize();
+        normal.setXYZ(i, tip.x, tip.y, tip.z);
+      }
+    }
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    const mesh = new THREE.Mesh(geometry, skinned.material);
+    mesh.name = skinned.name;
+    mesh.position.copy(skinned.position);
+    mesh.quaternion.copy(skinned.quaternion);
+    mesh.scale.copy(skinned.scale);
+    mesh.castShadow = skinned.castShadow;
+    mesh.receiveShadow = skinned.receiveShadow;
+    skinned.parent.add(mesh);
+    skinned.removeFromParent();
+    const lampIndex = reverseLampMeshes.indexOf(skinned);
+    if (lampIndex >= 0) reverseLampMeshes[lampIndex] = mesh;
+  }
+  // The model repeats identical materials per part; share them so parts can be merged.
+  const sharedMaterials = new Map();
+  const mapKeys = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'aoMap', 'alphaMap'];
+  model.traverse((child) => {
+    if (!child.isMesh || Array.isArray(child.material) || reverseLampMeshes.includes(child)) return;
+    const m = child.material;
+    const key = [m.type, m.color?.getHexString(), m.emissive?.getHexString(), m.emissiveIntensity, m.roughness, m.metalness,
+      m.transparent, m.opacity, m.side, m.alphaTest, m.vertexColors, m.depthWrite, ...mapKeys.map((name) => m[name]?.uuid)].join('|');
+    if (!sharedMaterials.has(key)) sharedMaterials.set(key, m);
+    child.material = sharedMaterials.get(key);
+  });
+  // The reverse lamps stay separate so they can light up on their own.
+  mergeStatic(model, reverseLampMeshes);
+  volvoBody.add(model);
   car.updateMatrixWorld(true);
   for (const lens of reverseLampMeshes) {
     const position = new THREE.Box3().setFromObject(lens).getCenter(new THREE.Vector3());
     car.worldToLocal(position);
     position.z -= 0.18;
-    const light = new THREE.PointLight('#eaf7ff', 0, 3.3, 2);
+    const light = new THREE.PointLight('#ff2a1a', 0, 3.3, 2);
     light.position.copy(position);
-    car.add(light);
+    volvoBody.add(light);
     reverseLampLights.push(light);
     const glow = new THREE.Sprite(reverseGlowMaterial);
     glow.position.copy(position);
     glow.scale.set(0.72, 0.72, 1);
-    car.add(glow);
+    volvoBody.add(glow);
   }
   const parkedPaints = ['#344451', '#e3e8e9', '#3d5365'].map(color => new THREE.MeshPhysicalMaterial({ color, metalness: 0.45, roughness: 0.24, clearcoat: 0.7, envMap: reflectionTarget.texture, envMapIntensity: 0.25 }));
   for (let i = 0; i < 3; i++) {
@@ -804,8 +1013,18 @@ function ensureAudio() {
     enginePulse.start();
     roadNoise.start();
   }
-  if (audioContext.state === 'suspended') audioContext.resume().catch(() => {});
+  // iOS can leave the context 'suspended' or 'interrupted' (e.g. after a call or app switch).
+  if (audioContext.state !== 'running') audioContext.resume().catch(() => {});
 }
+// Let game sounds play even when an iPhone's silent switch is on (Safari 17+).
+if (navigator.audioSession) navigator.audioSession.type = 'playback';
+// iOS only unlocks audio on touchend/click, not on pointerdown, so retry on those gestures too.
+for (const type of ['touchend', 'pointerup', 'click', 'keydown']) {
+  window.addEventListener(type, ensureAudio, { capture: true, passive: true });
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) ensureAudio();
+});
 function playNote(frequency, delay, duration, volume = 0.085) {
   if (!soundOn || !audioContext || audioContext.state !== 'running') return;
   const oscillator = audioContext.createOscillator();
@@ -880,13 +1099,12 @@ function updateReverseLights(dt, keyboardReverse) {
   for (const light of reverseLampLights) light.intensity = reverseLampBrightness * 2.4;
   reverseGlowMaterial.opacity = reverseLampBrightness * 0.85;
 }
-const input = { active: false, pointerId: null, source: null, startX: 0, startY: 0, dragX: 0, dragZ: 0, axisX: 0, axisY: 0, reverse: false };
-let reverseSteering = 0;
+const input = { active: false, pointerId: null, source: null, startX: 0, startY: 0, dragX: 0, dragZ: 0, axisX: 0, axisY: 0, reverse: false, directionChosen: false };
+let driveSteering = 0;
 const pointerRay = new THREE.Raycaster();
 const drivePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const startGround = new THREE.Vector3();
 const currentGround = new THREE.Vector3();
-const carScreenPosition = new THREE.Vector3();
 function groundPoint(clientX, clientY, target) {
   const rect = canvas.getBoundingClientRect();
   pointerRay.setFromCamera(new THREE.Vector2(
@@ -904,15 +1122,13 @@ function startDrive(event, source) {
   input.source = source;
   input.startX = event.clientX;
   input.startY = event.clientY;
-  const rect = canvas.getBoundingClientRect();
-  carScreenPosition.set(car.position.x, car.position.y + 0.9, car.position.z).project(camera);
-  const carMiddleY = rect.top + (1 - carScreenPosition.y) * rect.height / 2;
-  input.reverse = event.clientY > carMiddleY;
+  input.reverse = false;
+  input.directionChosen = false;
   input.dragX = 0;
   input.dragZ = 0;
   input.axisX = 0;
   input.axisY = 0;
-  reverseSteering = 0;
+  driveSteering = 0;
   source.setPointerCapture(event.pointerId);
 }
 function updateDrive(event) {
@@ -934,7 +1150,8 @@ function endDrive(event) {
   input.axisX = 0;
   input.axisY = 0;
   input.reverse = false;
-  reverseSteering = 0;
+  input.directionChosen = false;
+  driveSteering = 0;
 }
 canvas.addEventListener('pointerdown', (event) => startDrive(event, canvas));
 canvas.addEventListener('pointermove', updateDrive);
@@ -945,23 +1162,30 @@ const levels = [
   { environment: 'garage', type: 'garage', bay: 2, start: [0, 18], route: [[0, 18], [7, 16], [10, 10], [7, 3], [2, 0], [1.9, -12.5]], pickups: [2], cones: [[3, 12]], cars: [], islands: [[1, 8]], threeStar: 70 },
   { environment: 'store', type: 'parking', goal: [20, 4], start: [-10, 20], route: [[-10, 20], [-7, 14], [1, 15], [8, 11], [17, 13], [20, 4]], pickups: [2, 4], cones: [[5, 8], [16, 8]], cars: [[-4, 4, 0], [8, 4, 0]], islands: [[5, 19], [14, 8]], threeStar: 100 },
   { environment: 'roundabout', type: 'parking', goal: [-10, -8], start: [20, 18], route: [[20, 18], [16, 12], [17, 4], [13, -5], [5, -8], [-3, -7], [-10, -8]], pickups: [2, 4], cones: [[16, 11], [8, -9]], cars: [[20, -10, 0], [-10, 8, 0]], islands: [], threeStar: 110 },
+  { environment: 'mcdonalds', type: 'parking', goal: [-10, 4], start: [20, 20], route: [[20, 20], [17, 14], [9, 15], [2, 11], [-7, 13], [-10, 4]], pickups: [2, 4], cones: [[5, 8], [-6, 8]], cars: [[14, 4, 0], [2, 4, 0]], islands: [[5, 19], [-4, 8]], threeStar: 105 },
   { environment: 'garage', type: 'parking', goal: [-6, 0], start: [20, 20], route: [[20, 20], [18, 13], [10, 15], [4, 10], [-4, 9], [-6, 0]], pickups: [2, 4], cones: [[16, 17], [6, 7]], cars: [[12, 4, 0], [3, 3, 0]], islands: [[15, 8], [0, 16]], threeStar: 115 },
   { environment: 'store', type: 'parking', goal: [-10, 4], start: [22, 20], route: [[22, 20], [17, 14], [10, 16], [3, 11], [-5, 14], [-10, 4]], pickups: [2, 4], cones: [[18, 9], [-6, 8]], cars: [[14, 4, 0], [2, 4, 0]], islands: [[14, 10], [-2, 8]], threeStar: 115 },
   { environment: 'roundabout', type: 'parking', goal: [20, -7], start: [-11, 18], route: [[-11, 18], [-5, 13], [-7, 4], [-4, -5], [5, -8], [14, -7], [20, -7]], pickups: [2, 4], cones: [[-9, 8], [12, -9]], cars: [[-10, -9, 0], [20, 11, 0]], islands: [], threeStar: 120 },
+  { environment: 'mcdonalds', type: 'parking', goal: [20, 4], start: [-12, 20], route: [[-12, 20], [-7, 14], [0, 16], [7, 11], [15, 14], [20, 4]], pickups: [2, 4], cones: [[-8, 9], [16, 8]], cars: [[-4, 4, 0], [8, 4, 0]], islands: [[-4, 10], [12, 8]], threeStar: 120 },
   { environment: 'garage', type: 'garage', bay: 4, start: [-4, 20], route: [[-4, 20], [1, 14], [10, 17], [17, 10], [13, 3], [14.3, -2], [14.3, -12.5]], pickups: [2, 4], cones: [[2, 8], [19, 13]], cars: [[4, 6, 0], [20, 5, 0]], islands: [[10, 10]], threeStar: 125 },
   { environment: 'store', type: 'parking', goal: [8, 4], start: [-10, 20], route: [[-10, 20], [-8, 12], [-2, 16], [4, 12], [15, 14], [8, 4]], pickups: [2, 4], cones: [[-5, 9], [11, 9]], cars: [[-10, 4, 0], [20, 4, 0]], islands: [[1, 8], [18, 9]], threeStar: 125 },
   { environment: 'roundabout', type: 'parking', goal: [20, 17], start: [-11, -9], route: [[-11, -9], [-8, 1], [-4, 11], [5, 16], [14, 12], [20, 17]], pickups: [2, 4], cones: [[-8, 6], [11, 16]], cars: [[20, -9, 0], [-10, 18, 0]], islands: [], threeStar: 130 },
+  { environment: 'mcdonalds', type: 'parking', goal: [2, 4], start: [20, 20], route: [[20, 20], [18, 12], [12, 16], [6, 12], [-5, 14], [2, 4]], pickups: [2, 4], cones: [[15, 9], [-1, 9]], cars: [[20, 4, 0], [-10, 4, 0]], islands: [[9, 8], [-8, 9]], threeStar: 130 },
   { environment: 'garage', type: 'parking', goal: [17, 0], start: [-5, 19], route: [[-5, 19], [0, 14], [8, 18], [17, 15], [12, 8], [17, 0]], pickups: [2, 4], cones: [[11, 15], [15, 4]], cars: [[-3, 4, 0], [5, 4, 0], [21, 9, 0]], islands: [[5, 10], [20, 12]], threeStar: 135 },
   { environment: 'store', type: 'parking', goal: [-4, 4], start: [21, 19], route: [[21, 19], [17, 12], [11, 16], [5, 11], [-7, 13], [-4, 4]], pickups: [2, 4], cones: [[18, 8], [-8, 9]], cars: [[20, 4, 0], [8, 4, 0], [-10, 4, 0]], islands: [[14, 9], [-1, 8]], threeStar: 135 },
   { environment: 'roundabout', type: 'parking', goal: [-10, 17], start: [20, -9], route: [[20, -9], [18, 1], [15, 10], [5, 16], [-4, 12], [-10, 17]], pickups: [2, 4], cones: [[16, 6], [-7, 10]], cars: [[20, 19, 0], [-10, -10, 0]], islands: [], threeStar: 140 },
+  { environment: 'mcdonalds', type: 'parking', goal: [14, 4], start: [-11, 19], route: [[-11, 19], [-7, 12], [-1, 16], [5, 11], [17, 13], [14, 4]], pickups: [2, 4], cones: [[-8, 8], [18, 9]], cars: [[-10, 4, 0], [2, 4, 0], [20, 4, 0]], islands: [[-4, 9], [11, 8]], threeStar: 140 },
   { environment: 'garage', type: 'garage', bay: 1, start: [20, 19], route: [[20, 19], [16, 13], [8, 17], [1, 12], [-3, 7], [3, 3], [-4.3, -2], [-4.3, -12.5]], pickups: [2, 4, 6], cones: [[18, 9], [-7, 7], [2, -2]], cars: [[14, 5, 0], [8, 7, 0]], islands: [[8, 11], [0, 17]], threeStar: 145 },
   { environment: 'store', type: 'parking', goal: [14, 4], start: [-11, 20], route: [[-11, 20], [-6, 14], [1, 18], [7, 12], [18, 16], [20, 10], [14, 4]], pickups: [2, 4, 5], cones: [[5, 8], [12, 8], [18, 8]], cars: [[-10, 4, 0], [2, 4, 0], [20, 4, 0]], islands: [[2, 9], [12, 8]], threeStar: 145 },
   { environment: 'roundabout', type: 'parking', goal: [-10, -8], start: [20, 18], route: [[20, 18], [14, 13], [5, 16], [-4, 12], [-7, 4], [-4, -5], [-10, -8]], pickups: [2, 4, 5], cones: [[16, 11], [-8, 8]], cars: [[20, -9, 0], [-10, 17, 0]], islands: [], threeStar: 150 },
+  { environment: 'mcdonalds', type: 'parking', goal: [-4, 4], start: [21, 20], route: [[21, 20], [16, 14], [9, 18], [3, 12], [-8, 16], [-10, 10], [-4, 4]], pickups: [2, 4, 5], cones: [[5, 8], [-2, 8], [-8, 8]], cars: [[20, 4, 0], [8, 4, 0], [-10, 4, 0]], islands: [[8, 9], [-2, 8]], threeStar: 150 },
   { environment: 'garage', type: 'parking', goal: [9, 0], start: [-7, 19], route: [[-7, 19], [-2, 13], [6, 17], [18, 15], [20, 8], [13, 9], [9, 0]], pickups: [2, 4, 5], cones: [[2, 9], [17, 12], [12, 4]], cars: [[-6, 4, 0], [3, 4, 0], [20, 3, 0]], islands: [[5, 10], [16, 5]], threeStar: 150 },
   { environment: 'store', type: 'parking', goal: [2, 4], start: [22, 20], route: [[22, 20], [16, 13], [10, 17], [4, 12], [-8, 15], [-6, 9], [2, 4]], pickups: [2, 4, 5], cones: [[-4, 11], [5, 8], [17, 9]], cars: [[20, 4, 0], [14, 4, 0], [-10, 4, 0]], islands: [[11, 9], [2, 18]], threeStar: 155 },
   { environment: 'roundabout', type: 'parking', goal: [20, -7], start: [-11, 18], route: [[-11, 18], [-5, 13], [-7, 4], [-4, -5], [5, -8], [13, -5], [17, 4], [20, -7]], pickups: [2, 4, 6], cones: [[-8, 7], [6, -10], [17, 8]], cars: [[-10, -10, 0], [20, 18, 0]], islands: [], threeStar: 160 },
+  { environment: 'mcdonalds', type: 'parking', goal: [8, 4], start: [-12, 20], route: [[-12, 20], [-6, 13], [0, 17], [6, 12], [18, 15], [16, 9], [8, 4]], pickups: [2, 4, 5], cones: [[14, 11], [5, 8], [-7, 9]], cars: [[-10, 4, 0], [-4, 4, 0], [20, 4, 0]], islands: [[-1, 9], [8, 18]], threeStar: 160 },
   { environment: 'garage', type: 'garage', bay: 3, start: [-5, 20], route: [[-5, 20], [0, 14], [10, 18], [18, 14], [15, 7], [5, 9], [8, -2], [8.1, -12.5]], pickups: [2, 4, 6], cones: [[1, 10], [12, 12], [4, 2]], cars: [[-5, 5, 0], [20, 3, 0]], islands: [[10, 3], [20, 18]], threeStar: 165 },
   { environment: 'roundabout', type: 'parking', goal: [-10, 17], start: [20, 18], route: [[20, 18], [17, 4], [13, -5], [5, -8], [-4, -5], [-7, 4], [-4, 12], [-10, 17]], pickups: [2, 4, 6], cones: [[16, 11], [10, -9], [-8, 8]], cars: [[20, -10, 0], [-10, -10, 0], [22, -1, 0]], islands: [], threeStar: 170 },
+  { environment: 'mcdonalds', type: 'parking', goal: [14, 4], start: [-11, 20], route: [[-11, 20], [-6, 14], [1, 18], [7, 12], [18, 16], [20, 10], [14, 4]], pickups: [2, 4, 5], cones: [[5, 8], [12, 8], [18, 8]], cars: [[-10, 4, 0], [2, 4, 0], [20, 4, 0]], islands: [[2, 9], [12, 8]], threeStar: 175 }
 ];
 const obstacles = [];
 let level = 1;
@@ -981,6 +1205,7 @@ function startCrash() {
   keys.clear();
   endDrive();
   playCrashSound();
+  document.querySelector('#crash-feedback small').textContent = openWorldActive ? 'Keep driving!' : 'Trying again...';
   document.querySelector('#crash-feedback').hidden = false;
   crashSparkGroup.clear();
   crashParticles.length = 0;
@@ -1031,11 +1256,12 @@ function arrangeParkedCars() {
 function refreshReflections() {
   if (!carReady) return;
   car.visible = false;
+  const parkedVisible = parkedCars.map((parked) => parked.visible);
   parkedCars.forEach((parked) => { parked.visible = false; });
   reflectionCamera.position.set(car.position.x, 1.5, car.position.z);
   reflectionCamera.update(renderer, scene);
   car.visible = true;
-  parkedCars.forEach((parked) => { parked.visible = true; });
+  parkedCars.forEach((parked, index) => { parked.visible = parkedVisible[index]; });
 }
 function beginLevel(number) {
   crashing = false;
@@ -1044,12 +1270,18 @@ function beginLevel(number) {
   crashParticles.length = 0;
   document.querySelector('#crash-feedback').hidden = true;
   level = number > levels.length ? 1 : number;
+  openWorldActive = false;
+  openWorld.group.visible = false;
+  for (const object of [routeGroup, coneGroup, islandGroup, ...parkedCars]) object.visible = true;
+  showMapButton();
   activeLevel = levels[level - 1];
+  document.querySelector('#level-badge').textContent = `Level ${level}`;
   garageEnvironment.visible = activeLevel.environment === 'garage';
   storeEnvironment.visible = activeLevel.environment === 'store';
   roundaboutEnvironment.visible = activeLevel.environment === 'roundabout';
+  mcdonaldsEnvironment.visible = activeLevel.environment === 'mcdonalds';
   outerParkingLines.visible = activeLevel.environment !== 'roundabout';
-  const skyColor = { garage: '#a7c2d2', store: '#b9d7e0', roundabout: '#b7d8dd' }[activeLevel.environment];
+  const skyColor = { garage: '#a7c2d2', store: '#b9d7e0', roundabout: '#b7d8dd', mcdonalds: '#bcd6e2' }[activeLevel.environment];
   scene.background.set(skyColor);
   scene.fog.color.set(skyColor);
   completed = false;
@@ -1080,13 +1312,59 @@ function beginLevel(number) {
   lastSoundSpeed = 0;
   engineRpm = 60;
   endDrive();
-  const placeName = { garage: 'Garage yard', store: 'Sunny Market', roundabout: 'Roundabout' }[activeLevel.environment];
+  const placeName = { garage: 'Garage yard', store: 'ICA Supermarket', roundabout: 'Roundabout', mcdonalds: "McDonald's" }[activeLevel.environment];
   canvas.setAttribute('aria-label', `Drive the black Volvo at ${placeName}`);
   document.querySelector('#win-screen').hidden = true;
   document.querySelector('#next-level').innerHTML = level === levels.length ? 'Play again <span aria-hidden="true">↻</span>' : 'Next level <span aria-hidden="true">➜</span>';
-  camera.position.set(startX + 10, 25, startZ + 22);
+  cameraZoom = vehicle === 'bobby' ? 0.55 : 1;
+  camera.position.set(startX + 10 * cameraZoom, 25 * cameraZoom, startZ + 22 * cameraZoom);
   camera.lookAt(startX, 0, startZ);
 }
+// ---- Open world: drive freely between all the level locations ----
+let openWorldActive = false;
+const mapToggle = document.querySelector('#map-toggle');
+function showMapButton() {
+  mapToggle.textContent = openWorldActive ? '🏁' : '🗺️';
+  mapToggle.setAttribute('aria-label', openWorldActive ? 'Back to the levels' : 'Open world');
+  mapToggle.title = mapToggle.getAttribute('aria-label');
+}
+function enterOpenWorld() {
+  openWorldActive = true;
+  crashing = false;
+  completed = false;
+  crashSparkGroup.clear();
+  crashParticles.length = 0;
+  document.querySelector('#crash-feedback').hidden = true;
+  document.querySelector('#win-screen').hidden = true;
+  for (const object of [garageEnvironment, storeEnvironment, mcdonaldsEnvironment, roundaboutEnvironment, outerParkingLines,
+    goalMarker, parkingMarker, checkpointMarker, routeGroup, coneGroup, islandGroup, guideArrow, ...parkedCars]) object.visible = false;
+  openWorld.group.visible = true;
+  scene.background.set('#b3d2de');
+  scene.fog.color.set('#b3d2de');
+  car.position.set(openWorld.spawn.x, 0, openWorld.spawn.z);
+  car.rotation.set(0, openWorld.spawn.heading, 0);
+  speed = 0;
+  endDrive();
+  document.querySelector('#level-badge').textContent = 'Open world';
+  canvas.setAttribute('aria-label', 'Drive the black Volvo anywhere in the open world');
+  cameraZoom = vehicle === 'bobby' ? 0.55 : 1;
+  camera.position.set(car.position.x + 10 * cameraZoom, 25 * cameraZoom, car.position.z + 22 * cameraZoom);
+  refreshReflections();
+  showMapButton();
+}
+function recoverFromCrash() {
+  crashing = false;
+  car.rotation.z = 0;
+  car.position.y = 0;
+  crashSparkGroup.clear();
+  crashParticles.length = 0;
+  document.querySelector('#crash-feedback').hidden = true;
+}
+mapToggle.addEventListener('click', () => {
+  if (openWorldActive) beginLevel(level);
+  else enterOpenWorld();
+  mapToggle.blur();
+});
 const keys = new Set();
 window.addEventListener('keydown', (event) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.preventDefault();
@@ -1148,9 +1426,26 @@ fullscreenToggle.addEventListener('click', async () => {
 document.addEventListener('fullscreenchange', syncFullscreenButton);
 document.addEventListener('webkitfullscreenchange', syncFullscreenButton);
 resize();
+// If a device still can't keep up, render fewer pixels until it holds a steady frame rate.
+let slowFrames = 0;
+let measuredFrames = 0;
+function adaptResolution(frameTime) {
+  if (document.hidden || frameTime > 0.25) return;
+  measuredFrames++;
+  if (frameTime > 1 / 45) slowFrames++;
+  if (measuredFrames < 90) return;
+  if (slowFrames > 30 && pixelRatio > 0.75) {
+    pixelRatio = Math.max(0.75, pixelRatio - 0.25);
+    renderer.setPixelRatio(pixelRatio);
+  }
+  slowFrames = 0;
+  measuredFrames = 0;
+}
 function animate() {
   requestAnimationFrame(animate);
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const frameTime = clock.getDelta();
+  const dt = Math.min(frameTime, 0.05);
+  adaptResolution(frameTime);
   const keyboardForward = keys.has('w') || keys.has('arrowup') || keys.has(' ');
   const keyboardReverse = !keyboardForward && (keys.has('s') || keys.has('arrowdown'));
   const draggingScene = input.active && input.source === canvas;
@@ -1158,6 +1453,13 @@ function animate() {
   if (carReady && !completed && !crashing) {
     const dragAmount = Math.hypot(input.axisX, input.axisY);
     if (draggingScene && dragAmount >= 0.12) {
+      if (!input.directionChosen) {
+        // Choose forward or reverse from the drag relative to the car's current heading.
+        // Keep that choice for this gesture so turning the car cannot suddenly switch gears.
+        const towardFront = input.dragX * Math.sin(car.rotation.y) + input.dragZ * Math.cos(car.rotation.y);
+        input.reverse = towardFront < 0;
+        input.directionChosen = true;
+      }
       let targetYaw = Math.atan2(input.dragX, input.dragZ);
       const garageX = goalMarker.position.x;
       // Help young players line up with the open door once they reach the garage.
@@ -1173,19 +1475,21 @@ function animate() {
       const turn = Math.atan2(Math.sin(targetYaw - car.rotation.y), Math.cos(targetYaw - car.rotation.y));
       if (input.reverse) {
         // Reversing should steer gently instead of pivoting toward the drag direction.
-        reverseSteering = THREE.MathUtils.damp(reverseSteering, THREE.MathUtils.clamp(turn, -0.65, 0.65), 4.5, dt);
-        car.rotation.y += reverseSteering * Math.min(0.85, 0.3 + Math.abs(speed) * 0.14) * dt;
+        driveSteering = THREE.MathUtils.damp(driveSteering, THREE.MathUtils.clamp(turn, -0.65, 0.65), 4.5, dt);
+        car.rotation.y += driveSteering * Math.min(0.85, 0.3 + Math.abs(speed) * 0.14) * dt;
       } else {
+        // Ease into and out of turns so the car glides toward the drag direction instead of snapping.
         const turnRate = 2.25 * Math.min(1, 0.55 + Math.abs(speed) * 0.16);
-        car.rotation.y += THREE.MathUtils.clamp(turn, -turnRate * dt, turnRate * dt);
+        driveSteering = THREE.MathUtils.damp(driveSteering, THREE.MathUtils.clamp(turn * 2.4, -turnRate, turnRate), 6, dt);
+        car.rotation.y += driveSteering * dt;
       }
-      // The drag sets a travel direction; a touch below the car makes it back into that direction.
+      // The drag sets a travel direction; dragging toward the rear makes it back into that direction.
       const cornerSpeed = THREE.MathUtils.clamp(1 - Math.abs(turn) / Math.PI, input.reverse ? 0.55 : 0.32, 1);
       const desiredSpeed = (input.reverse ? -1 : 1) * Math.min(input.reverse ? 3.8 : 7.2, 2.5 + dragAmount * 4.2) * cornerSpeed;
-      const smoothSpeed = input.reverse ? THREE.MathUtils.damp(speed, desiredSpeed, 2.5, dt) : desiredSpeed;
+      const smoothSpeed = THREE.MathUtils.damp(speed, desiredSpeed, input.reverse ? 2.5 : 3, dt);
       speed = THREE.MathUtils.clamp(smoothSpeed, speed - (input.reverse ? 4.2 : 12) * dt, speed + 8 * dt);
     } else {
-      reverseSteering = THREE.MathUtils.damp(reverseSteering, 0, 6, dt);
+      driveSteering = THREE.MathUtils.damp(driveSteering, 0, 6, dt);
       speed = THREE.MathUtils.damp(speed, keyboardForward ? 6.6 : keyboardReverse ? -3.8 : 0, keyboardForward || keyboardReverse ? 1.8 : speed < 0 ? 3.2 : 4.4, dt);
       if (Math.abs(speed) < 0.015) speed = 0;
       if ((keyboardForward || keyboardReverse) && keySteer) {
@@ -1194,99 +1498,107 @@ function animate() {
       }
     }
     const impactSpeed = speed;
-    const desiredX = car.position.x + Math.sin(car.rotation.y) * speed * dt;
-    const desiredZ = car.position.z + Math.cos(car.rotation.y) * speed * dt;
-    let nextX = THREE.MathUtils.clamp(desiredX, driveBounds.minX, driveBounds.maxX);
-    let nextZ = THREE.MathUtils.clamp(desiredZ, activeLevel.environment === 'roundabout' ? driveBounds.roundMinZ : -15.5, driveBounds.maxZ);
-    let hitSolid = nextX !== desiredX || nextZ !== desiredZ;
-    if (activeLevel.environment === 'garage' && nextX < -9.5 && nextZ > 10.8) {
-      hitSolid = true;
-      nextX = car.position.x;
-      nextZ = car.position.z;
-      speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
-    }
-    if (activeLevel.environment === 'roundabout' && Math.hypot(nextX - 5, nextZ - 4) < 7.05) {
-      hitSolid = true;
-      nextX = car.position.x;
-      nextZ = car.position.z;
-      speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
-    }
-    for (const island of solidIslands) {
-      if (Math.hypot(nextX - island.x, nextZ - island.z) < 2.45) {
+    // The bobby car is small and the camera is close, so it covers less ground at the same pace.
+    const travel = speed * dt * (vehicle === 'bobby' ? 0.5 : 1);
+    const desiredX = car.position.x + Math.sin(car.rotation.y) * travel;
+    const desiredZ = car.position.z + Math.cos(car.rotation.y) * travel;
+    let hitSolid = false;
+    if (openWorldActive) {
+      hitSolid = openWorld.blocks(car.position.x, car.position.z, desiredX, desiredZ, car.rotation.y, vehicle === 'bobby');
+      if (!hitSolid) car.position.set(desiredX, 0, desiredZ);
+    } else {
+      let nextX = THREE.MathUtils.clamp(desiredX, driveBounds.minX, driveBounds.maxX);
+      let nextZ = THREE.MathUtils.clamp(desiredZ, activeLevel.environment === 'roundabout' ? driveBounds.roundMinZ : -15.5, driveBounds.maxZ);
+      hitSolid = nextX !== desiredX || nextZ !== desiredZ;
+      if (activeLevel.environment === 'garage' && nextX < -9.5 && nextZ > 10.8) {
         hitSolid = true;
         nextX = car.position.x;
         nextZ = car.position.z;
         speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
-        break;
       }
-    }
-    for (let i = 0; i < activeLevel.cars.length; i++) {
-      const parked = parkedCars[i];
-      if (parked && Math.hypot(nextX - parked.position.x, nextZ - parked.position.z) < 3.15) {
+      if (activeLevel.environment === 'roundabout' && Math.hypot(nextX - 5, nextZ - 4) < 7.05) {
         hitSolid = true;
         nextX = car.position.x;
         nextZ = car.position.z;
-        speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.25);
-        break;
+        speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
       }
-    }
-    const doorwayX = goalMarker.position.x;
-    if (activeLevel.type === 'parking') {
-      const minZ = activeLevel.environment === 'garage' ? -6.1 : activeLevel.environment === 'store' ? -3.5 : -13.5;
-      if (nextZ < minZ) hitSolid = true;
-      car.position.set(nextX, 0, Math.max(nextZ, minZ));
-    } else if (activeLevel.type === 'garage' && nextZ < -6.1 && (activePickup < activeLevel.pickups.length || Math.abs(nextX - doorwayX) > 1.65)) {
-      hitSolid = true;
-      car.position.set(nextX, 0, -6.1);
-    } else {
-      car.position.set(activeLevel.type === 'garage' && nextZ < -6.1 ? THREE.MathUtils.clamp(nextX, doorwayX - 1.65, doorwayX + 1.65) : nextX, 0, nextZ);
-    }
-    if (Math.abs(speed) > 0.2) timerStarted = true;
-    if (timerStarted) {
-      levelElapsed += dt;
-    }
-    if (checkpointMarker.visible && Math.hypot(car.position.x - checkpointMarker.position.x, car.position.z - checkpointMarker.position.z) < 4) {
-      activePickup++;
-      updateObjective();
-      playNote(659, 0, 0.18, 0.07);
-      playNote(880, 0.09, 0.23, 0.065);
-    }
-    for (const obstacle of obstacles) {
-      const coneX = coneGroup.position.x + obstacle.group.position.x;
-      if (!obstacle.hit && Math.abs(car.position.x - coneX) < 1.3 && Math.abs(car.position.z - obstacle.group.position.z) < 2.1) {
-        obstacle.hit = true;
-        const push = car.position.x <= coneX ? 1 : -1;
-        obstacle.targetX = obstacle.group.position.x + push * 1.7;
-        obstacle.lean = push * 0.9;
-        speed *= 0.68;
-        playNote(190, 0, 0.14, 0.055);
+      for (const island of solidIslands) {
+        if (Math.hypot(nextX - island.x, nextZ - island.z) < 2.45 - vehicleShrink()) {
+          hitSolid = true;
+          nextX = car.position.x;
+          nextZ = car.position.z;
+          speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
+          break;
+        }
       }
-      if (obstacle.hit) {
-        obstacle.group.position.x = THREE.MathUtils.damp(obstacle.group.position.x, obstacle.targetX, 7, dt);
-        obstacle.group.rotation.z = THREE.MathUtils.damp(obstacle.group.rotation.z, obstacle.lean, 6, dt);
+      for (let i = 0; i < activeLevel.cars.length; i++) {
+        const parked = parkedCars[i];
+        if (parked && Math.hypot(nextX - parked.position.x, nextZ - parked.position.z) < 3.15 - vehicleShrink()) {
+          hitSolid = true;
+          nextX = car.position.x;
+          nextZ = car.position.z;
+          speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.25);
+          break;
+        }
       }
-    }
-    const parkedInGoal = activePickup === activeLevel.pickups.length && (activeLevel.type === 'garage'
-      ? car.position.z < -12.2 && Math.abs(car.position.x - doorwayX) < 1.55
-      : Math.hypot(car.position.x - parkingMarker.position.x, car.position.z - parkingMarker.position.z) < 1.85);
-    if (parkedInGoal) {
-      completed = true;
-      speed = 0;
-      endDrive();
-      const stars = levelElapsed <= activeLevel.threeStar ? 3 : levelElapsed <= activeLevel.threeStar * 1.8 ? 2 : 1;
-      const starBox = document.querySelector('#win-stars');
-      starBox.replaceChildren(...Array.from({ length: 3 }, (_, index) => {
-        const star = document.createElement('span');
-        star.textContent = '★';
-        if (index < stars) star.classList.add('earned');
-        return star;
-      }));
-      starBox.setAttribute('aria-label', `${stars} out of 3 stars`);
-      document.querySelector('#win-title').textContent = activeLevel.type === 'garage' ? 'Garage parked!' : 'You parked it!';
-      document.querySelector('#win-level').textContent = `Level ${level} complete`;
-      document.querySelector('#win-time').textContent = `Time: ${formatTime(levelElapsed)}`;
-      document.querySelector('#win-screen').hidden = false;
-      playWinSound();
+      const doorwayX = goalMarker.position.x;
+      if (activeLevel.type === 'parking') {
+        const minZ = activeLevel.environment === 'garage' ? -6.1 : activeLevel.environment === 'store' || activeLevel.environment === 'mcdonalds' ? -3.5 : -13.5;
+        if (nextZ < minZ) hitSolid = true;
+        car.position.set(nextX, 0, Math.max(nextZ, minZ));
+      } else if (activeLevel.type === 'garage' && nextZ < -6.1 && (activePickup < activeLevel.pickups.length || Math.abs(nextX - doorwayX) > 1.65)) {
+        hitSolid = true;
+        car.position.set(nextX, 0, -6.1);
+      } else {
+        car.position.set(activeLevel.type === 'garage' && nextZ < -6.1 ? THREE.MathUtils.clamp(nextX, doorwayX - 1.65, doorwayX + 1.65) : nextX, 0, nextZ);
+      }
+      if (Math.abs(speed) > 0.2) timerStarted = true;
+      if (timerStarted) {
+        levelElapsed += dt;
+      }
+      if (checkpointMarker.visible && Math.hypot(car.position.x - checkpointMarker.position.x, car.position.z - checkpointMarker.position.z) < 4) {
+        activePickup++;
+        updateObjective();
+        playNote(659, 0, 0.18, 0.07);
+        playNote(880, 0.09, 0.23, 0.065);
+      }
+      for (const obstacle of obstacles) {
+        const coneX = coneGroup.position.x + obstacle.group.position.x;
+        if (!obstacle.hit && Math.abs(car.position.x - coneX) < (vehicle === 'bobby' ? 0.7 : 1.3) && Math.abs(car.position.z - obstacle.group.position.z) < (vehicle === 'bobby' ? 0.9 : 2.1)) {
+          obstacle.hit = true;
+          const push = car.position.x <= coneX ? 1 : -1;
+          obstacle.targetX = obstacle.group.position.x + push * 1.7;
+          obstacle.lean = push * 0.9;
+          speed *= 0.68;
+          playNote(190, 0, 0.14, 0.055);
+        }
+        if (obstacle.hit) {
+          obstacle.group.position.x = THREE.MathUtils.damp(obstacle.group.position.x, obstacle.targetX, 7, dt);
+          obstacle.group.rotation.z = THREE.MathUtils.damp(obstacle.group.rotation.z, obstacle.lean, 6, dt);
+        }
+      }
+      const parkedInGoal = activePickup === activeLevel.pickups.length && (activeLevel.type === 'garage'
+        ? car.position.z < -12.2 && Math.abs(car.position.x - doorwayX) < 1.55
+        : Math.hypot(car.position.x - parkingMarker.position.x, car.position.z - parkingMarker.position.z) < 1.85);
+      if (parkedInGoal) {
+        completed = true;
+        speed = 0;
+        endDrive();
+        const stars = levelElapsed <= activeLevel.threeStar ? 3 : levelElapsed <= activeLevel.threeStar * 1.8 ? 2 : 1;
+        const starBox = document.querySelector('#win-stars');
+        starBox.replaceChildren(...Array.from({ length: 3 }, (_, index) => {
+          const star = document.createElement('span');
+          star.textContent = '★';
+          if (index < stars) star.classList.add('earned');
+          return star;
+        }));
+        starBox.setAttribute('aria-label', `${stars} out of 3 stars`);
+        document.querySelector('#win-title').textContent = activeLevel.type === 'garage' ? 'Garage parked!' : 'You parked it!';
+        document.querySelector('#win-level').textContent = `Level ${level} complete`;
+        document.querySelector('#win-time').textContent = `Time: ${formatTime(levelElapsed)}`;
+        document.querySelector('#win-screen').hidden = false;
+        playWinSound();
+      }
     }
     if (hitSolid) speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
     if (hitSolid && Math.abs(impactSpeed) > 1.8 && !completed) startCrash();
@@ -1301,18 +1613,26 @@ function animate() {
       particle.velocity.y -= 9 * dt;
     }
     crashSparkMaterial.opacity = Math.max(0, 1 - crashTime / 0.65);
-    if (crashTime >= 1.55) beginLevel(level);
+    if (crashTime >= 1.55) {
+      if (openWorldActive) recoverFromCrash();
+      else beginLevel(level);
+    }
   }
   updateEngineSound(dt);
   updateReverseLights(dt, keyboardReverse);
+  if (bobbyCar.group.visible) {
+    const yawRate = dt > 0 ? Math.atan2(Math.sin(car.rotation.y - lastCarYaw), Math.cos(car.rotation.y - lastCarYaw)) / dt : 0;
+    bobbyCar.update(speed, dt, yawRate);
+  }
+  lastCarYaw = car.rotation.y;
   if (checkpointMarker.visible) {
     const pulse = clock.elapsedTime * 3.2;
     checkpointStar.position.y = 2.15 + Math.sin(pulse) * 0.22;
     checkpointStar.material.rotation = Math.sin(pulse * 0.55) * 0.12;
     checkpointRing.scale.setScalar(1 + Math.sin(pulse) * 0.08);
   }
-  guideArrow.visible = !completed && !crashing;
-  if (!completed && !crashing) {
+  guideArrow.visible = !completed && !crashing && !openWorldActive;
+  if (!completed && !crashing && !openWorldActive) {
     let nearestAlong = 0;
     let nearestDistanceSq = Infinity;
     for (let index = 0; index < guideSamples.length - 1; index++) {
@@ -1334,7 +1654,8 @@ function animate() {
     const deltaX = routePoint.x - car.position.x;
     const deltaZ = routePoint.z - car.position.z;
     const distance = Math.max(0.001, Math.hypot(deltaX, deltaZ));
-    const ahead = Math.min(3.5, distance);
+    const ahead = Math.min(vehicle === 'bobby' ? 1.6 : 3.5, distance);
+    guideArrow.scale.setScalar(vehicle === 'bobby' ? 0.4 : 0.82);
     const targetX = car.position.x + deltaX / distance * ahead;
     const targetZ = car.position.z + deltaZ / distance * ahead;
     const targetAngle = Math.atan2(-deltaX, -deltaZ);
@@ -1351,7 +1672,9 @@ function animate() {
     }
   }
   lookGoal.set(car.position.x + Math.sin(car.rotation.y) * 0.8, 0, car.position.z + Math.cos(car.rotation.y) * 0.8);
-  cameraGoal.set(lookGoal.x + 10, 25, lookGoal.z + 22);
+  // Zoom in on the small bobby car, and ease between the two views when switching.
+  cameraZoom = THREE.MathUtils.damp(cameraZoom, vehicle === 'bobby' ? 0.55 : 1, 3, dt);
+  cameraGoal.set(lookGoal.x + 10 * cameraZoom, 25 * cameraZoom, lookGoal.z + 22 * cameraZoom);
   camera.position.lerp(cameraGoal, 1 - Math.exp(-5 * dt));
   if (crashing) {
     const shake = Math.exp(-7 * crashTime);
@@ -1359,8 +1682,20 @@ function animate() {
     camera.position.z += Math.cos(crashTime * 31) * 0.13 * shake;
   }
   camera.lookAt(lookGoal);
+  // Keep the sun's shadow area centred on the car wherever it drives.
+  sun.target.position.set(car.position.x, 0, car.position.z);
+  sun.position.set(car.position.x - 28, 45, car.position.z + 20);
   renderer.render(scene, camera);
 }
+const openWorld = createOpenWorld({
+  environments: { garage: garageEnvironment, store: storeEnvironment, mcdonalds: mcdonaldsEnvironment, roundabout: roundaboutEnvironment },
+  asphaltTexture, grassMaterial: ground.material, lineMaterial: paintLine, mergeStatic, random,
+});
+scene.add(openWorld.group);
+for (const environment of [garageEnvironment, storeEnvironment, mcdonaldsEnvironment, roundaboutEnvironment]) {
+  mergeStatic(environment, environment === garageEnvironment ? garageDoors : []);
+}
+mergeStatic(outerParkingLines);
 const requestedLevel = Number(new URLSearchParams(window.location.search).get('level'));
 beginLevel(Number.isInteger(requestedLevel) && requestedLevel >= 1 && requestedLevel <= levels.length ? requestedLevel : 1);
 animate();
