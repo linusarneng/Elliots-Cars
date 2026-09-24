@@ -1079,6 +1079,33 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
+const gameElement = document.querySelector('#app');
+const fullscreenToggle = document.querySelector('#fullscreen-toggle');
+function syncFullscreenButton() {
+  const isFullscreen = document.fullscreenElement === gameElement || document.webkitFullscreenElement === gameElement;
+  fullscreenToggle.classList.toggle('is-fullscreen', isFullscreen);
+  fullscreenToggle.querySelector('.fullscreen-label').textContent = isFullscreen ? 'Exit full screen' : 'Full screen';
+  fullscreenToggle.setAttribute('aria-label', isFullscreen ? 'Exit full screen' : 'Enter full screen');
+  fullscreenToggle.setAttribute('aria-pressed', String(isFullscreen));
+  fullscreenToggle.title = isFullscreen ? 'Exit full screen' : 'Enter full screen';
+  resize();
+}
+fullscreenToggle.addEventListener('click', async () => {
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      if (document.exitFullscreen) await document.exitFullscreen();
+      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    } else if (gameElement.requestFullscreen) {
+      await gameElement.requestFullscreen();
+    } else if (gameElement.webkitRequestFullscreen) {
+      gameElement.webkitRequestFullscreen();
+    }
+  } catch (error) {
+    console.warn('Full screen is unavailable in this browser.', error);
+  }
+});
+document.addEventListener('fullscreenchange', syncFullscreenButton);
+document.addEventListener('webkitfullscreenchange', syncFullscreenButton);
 resize();
 function animate() {
   requestAnimationFrame(animate);
