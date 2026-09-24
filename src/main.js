@@ -668,6 +668,20 @@ const blackPaint = new THREE.MeshPhysicalMaterial({
   clearcoat: 1, clearcoatRoughness: 0.045,
   envMap: reflectionTarget.texture, envMapIntensity: 0.14,
 });
+const reverseLampMaterials = [];
+const reverseLampMeshes = [];
+const reverseLampLights = [];
+const reverseGlowTexture = canvasTexture(64, (ctx, size) => {
+  const glow = ctx.createRadialGradient(size / 2, size / 2, 2, size / 2, size / 2, size / 2);
+  glow.addColorStop(0, 'rgba(255,255,255,1)');
+  glow.addColorStop(0.3, 'rgba(225,244,255,.65)');
+  glow.addColorStop(1, 'rgba(225,244,255,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, size, size);
+});
+reverseGlowTexture.wrapS = reverseGlowTexture.wrapT = THREE.ClampToEdgeWrapping;
+const reverseGlowMaterial = new THREE.SpriteMaterial({ map: reverseGlowTexture, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+let reverseLampBrightness = 0;
 
 new GLTFLoader().load(carUrl, (gltf) => {
   const model = gltf.scene;
@@ -681,9 +695,32 @@ new GLTFLoader().load(carUrl, (gltf) => {
   model.traverse((child) => {
     if (!child.isMesh) return;
     if (child.material?.name?.includes('vehicle_generic_smallspecmap')) child.material = blackPaint;
+    const meshIndex = gltf.parser.associations.get(child)?.meshes;
+    const meshName = gltf.parser.json.meshes[meshIndex]?.name || '';
+    if (meshName.startsWith('reversinglight_') && child.material?.emissive) {
+      child.material = child.material.clone();
+      child.material.emissive.set('#eaf7ff');
+      child.material.emissiveIntensity = 0;
+      reverseLampMaterials.push(child.material);
+      reverseLampMeshes.push(child);
+    }
     child.castShadow = true;
   });
   car.add(model);
+  car.updateMatrixWorld(true);
+  for (const lens of reverseLampMeshes) {
+    const position = new THREE.Box3().setFromObject(lens).getCenter(new THREE.Vector3());
+    car.worldToLocal(position);
+    position.z -= 0.18;
+    const light = new THREE.PointLight('#eaf7ff', 0, 3.3, 2);
+    light.position.copy(position);
+    car.add(light);
+    reverseLampLights.push(light);
+    const glow = new THREE.Sprite(reverseGlowMaterial);
+    glow.position.copy(position);
+    glow.scale.set(0.72, 0.72, 1);
+    car.add(glow);
+  }
   const parkedPaints = ['#344451', '#e3e8e9', '#3d5365'].map(color => new THREE.MeshPhysicalMaterial({ color, metalness: 0.45, roughness: 0.24, clearcoat: 0.7, envMap: reflectionTarget.texture, envMapIntensity: 0.25 }));
   for (let i = 0; i < 3; i++) {
     const parked = new THREE.Group();
@@ -836,7 +873,15 @@ function updateEngineSound(dt = 1 / 60) {
   engineFilter.frequency.setTargetAtTime(185 + roadSpeed * 42 + (throttle ? 75 : 0), now, 0.08);
   roadNoiseGain.gain.setTargetAtTime(roadSpeed * 0.028, now, 0.12);
 }
+function updateReverseLights(dt, keyboardReverse) {
+  const reversing = !completed && !crashing && ((input.active && input.reverse) || keyboardReverse || speed < -0.08);
+  reverseLampBrightness = THREE.MathUtils.damp(reverseLampBrightness, reversing ? 1 : 0, 9, dt);
+  for (const material of reverseLampMaterials) material.emissiveIntensity = reverseLampBrightness * 6;
+  for (const light of reverseLampLights) light.intensity = reverseLampBrightness * 2.4;
+  reverseGlowMaterial.opacity = reverseLampBrightness * 0.85;
+}
 const input = { active: false, pointerId: null, source: null, startX: 0, startY: 0, dragX: 0, dragZ: 0, axisX: 0, axisY: 0, reverse: false };
+let reverseSteering = 0;
 const pointerRay = new THREE.Raycaster();
 const drivePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const startGround = new THREE.Vector3();
@@ -867,6 +912,7 @@ function startDrive(event, source) {
   input.dragZ = 0;
   input.axisX = 0;
   input.axisY = 0;
+  reverseSteering = 0;
   source.setPointerCapture(event.pointerId);
 }
 function updateDrive(event) {
@@ -888,6 +934,7 @@ function endDrive(event) {
   input.axisX = 0;
   input.axisY = 0;
   input.reverse = false;
+  reverseSteering = 0;
 }
 canvas.addEventListener('pointerdown', (event) => startDrive(event, canvas));
 canvas.addEventListener('pointermove', updateDrive);
@@ -1114,26 +1161,37 @@ function animate() {
       let targetYaw = Math.atan2(input.dragX, input.dragZ);
       const garageX = goalMarker.position.x;
       // Help young players line up with the open door once they reach the garage.
-      if (activeLevel.type === 'garage' && activePickup === activeLevel.pickups.length && car.position.z < 0.5 && Math.abs(car.position.x - garageX) < 7.5) {
+      if (!input.reverse && activeLevel.type === 'garage' && activePickup === activeLevel.pickups.length && car.position.z < 0.5 && Math.abs(car.position.x - garageX) < 7.5) {
         const alignmentZ = Math.abs(car.position.x - garageX) > 1.3 ? -6.7 : -14;
         targetYaw = Math.atan2(garageX - car.position.x, alignmentZ - car.position.z);
-      } else if (activeLevel.type === 'parking') {
+      } else if (!input.reverse && activeLevel.type === 'parking') {
         const toParkingX = parkingMarker.position.x - car.position.x;
         const toParkingZ = parkingMarker.position.z - car.position.z;
         if (activePickup === activeLevel.pickups.length && Math.hypot(toParkingX, toParkingZ) < 6) targetYaw = Math.atan2(toParkingX, toParkingZ);
       }
       if (input.reverse) targetYaw += Math.PI;
       const turn = Math.atan2(Math.sin(targetYaw - car.rotation.y), Math.cos(targetYaw - car.rotation.y));
-      const turnRate = 2.25 * Math.min(1, 0.55 + Math.abs(speed) * 0.16);
-      car.rotation.y += THREE.MathUtils.clamp(turn, -turnRate * dt, turnRate * dt);
+      if (input.reverse) {
+        // Reversing should steer gently instead of pivoting toward the drag direction.
+        reverseSteering = THREE.MathUtils.damp(reverseSteering, THREE.MathUtils.clamp(turn, -0.65, 0.65), 4.5, dt);
+        car.rotation.y += reverseSteering * Math.min(0.85, 0.3 + Math.abs(speed) * 0.14) * dt;
+      } else {
+        const turnRate = 2.25 * Math.min(1, 0.55 + Math.abs(speed) * 0.16);
+        car.rotation.y += THREE.MathUtils.clamp(turn, -turnRate * dt, turnRate * dt);
+      }
       // The drag sets a travel direction; a touch below the car makes it back into that direction.
-      const cornerSpeed = THREE.MathUtils.clamp(1 - Math.abs(turn) / Math.PI, 0.32, 1);
-      const desiredSpeed = (input.reverse ? -1 : 1) * Math.min(input.reverse ? 4.8 : 7.2, 2.5 + dragAmount * 4.2) * cornerSpeed;
-      speed = THREE.MathUtils.clamp(desiredSpeed, speed - 12 * dt, speed + 8 * dt);
+      const cornerSpeed = THREE.MathUtils.clamp(1 - Math.abs(turn) / Math.PI, input.reverse ? 0.55 : 0.32, 1);
+      const desiredSpeed = (input.reverse ? -1 : 1) * Math.min(input.reverse ? 3.8 : 7.2, 2.5 + dragAmount * 4.2) * cornerSpeed;
+      const smoothSpeed = input.reverse ? THREE.MathUtils.damp(speed, desiredSpeed, 2.5, dt) : desiredSpeed;
+      speed = THREE.MathUtils.clamp(smoothSpeed, speed - (input.reverse ? 4.2 : 12) * dt, speed + 8 * dt);
     } else {
-      speed = THREE.MathUtils.damp(speed, keyboardForward ? 6.6 : keyboardReverse ? -4.8 : 0, keyboardForward || keyboardReverse ? 1.8 : 4.4, dt);
+      reverseSteering = THREE.MathUtils.damp(reverseSteering, 0, 6, dt);
+      speed = THREE.MathUtils.damp(speed, keyboardForward ? 6.6 : keyboardReverse ? -3.8 : 0, keyboardForward || keyboardReverse ? 1.8 : speed < 0 ? 3.2 : 4.4, dt);
       if (Math.abs(speed) < 0.015) speed = 0;
-      if ((keyboardForward || keyboardReverse) && keySteer) car.rotation.y += keySteer * Math.sign(speed) * Math.min(2, Math.abs(speed) * 0.38) * dt;
+      if ((keyboardForward || keyboardReverse) && keySteer) {
+        const keyboardTurnRate = keyboardReverse ? Math.min(0.55, Math.abs(speed) * 0.15) : Math.min(2, Math.abs(speed) * 0.38);
+        car.rotation.y += keySteer * Math.sign(speed) * keyboardTurnRate * dt;
+      }
     }
     const impactSpeed = speed;
     const desiredX = car.position.x + Math.sin(car.rotation.y) * speed * dt;
@@ -1246,6 +1304,7 @@ function animate() {
     if (crashTime >= 1.55) beginLevel(level);
   }
   updateEngineSound(dt);
+  updateReverseLights(dt, keyboardReverse);
   if (checkpointMarker.visible) {
     const pulse = clock.elapsedTime * 3.2;
     checkpointStar.position.y = 2.15 + Math.sin(pulse) * 0.22;
