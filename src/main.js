@@ -5,7 +5,6 @@ import carUrl from '../volvo_v70.glb?url';
 import './style.css';
 
 const canvas = document.querySelector('#scene');
-const instruction = document.querySelector('#instruction');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.7));
 renderer.shadowMap.enabled = true;
@@ -863,7 +862,6 @@ function startDrive(event, source) {
   input.axisX = 0;
   input.axisY = 0;
   source.setPointerCapture(event.pointerId);
-  instruction.classList.add('is-driving');
 }
 function updateDrive(event) {
   if (!input.active || event.pointerId !== input.pointerId) return;
@@ -883,7 +881,6 @@ function endDrive(event) {
   input.source = null;
   input.axisX = 0;
   input.axisY = 0;
-  instruction.classList.remove('is-driving');
 }
 canvas.addEventListener('pointerdown', (event) => startDrive(event, canvas));
 canvas.addEventListener('pointermove', updateDrive);
@@ -950,11 +947,7 @@ function formatTime(seconds) {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 function updateObjective() {
-  const placeName = { garage: 'Garage yard', store: 'Sunny Market', roundabout: 'Roundabout' }[activeLevel.environment];
   const total = activeLevel.pickups.length;
-  const progress = document.querySelector('#star-progress');
-  progress.textContent = `⭐ ${activePickup}/${total}`;
-  progress.setAttribute('aria-label', `${activePickup} of ${total} route stars collected`);
   const nextRouteIndex = activeLevel.pickups[activePickup];
   checkpointMarker.visible = nextRouteIndex !== undefined;
   if (checkpointMarker.visible) {
@@ -973,7 +966,6 @@ function updateObjective() {
   garageDoors.forEach((panel, index) => { panel.visible = activeLevel.type !== 'garage' || !readyToPark || index !== activeLevel.bay; });
   goalMarker.visible = activeLevel.type === 'garage' && readyToPark;
   parkingMarker.visible = activeLevel.type === 'parking' && readyToPark;
-  document.querySelector('#goal-instruction').textContent = `${placeName} · ${checkpointMarker.visible ? 'Catch the star!' : activeLevel.type === 'garage' ? 'Find the open door' : 'Find the glowing parking spot'}`;
 }
 function arrangeParkedCars() {
   parkedCars.forEach((parked, index) => {
@@ -1034,10 +1026,8 @@ function beginLevel(number) {
   lastSoundSpeed = 0;
   engineRpm = 60;
   endDrive();
-  document.querySelector('#level-number').textContent = `Level ${level} / ${levels.length}`;
   const placeName = { garage: 'Garage yard', store: 'Sunny Market', roundabout: 'Roundabout' }[activeLevel.environment];
   canvas.setAttribute('aria-label', `Drive the black Volvo at ${placeName}`);
-  document.querySelector('#level-time').textContent = '0:00';
   document.querySelector('#win-screen').hidden = true;
   document.querySelector('#next-level').innerHTML = level === levels.length ? 'Play again <span aria-hidden="true">↻</span>' : 'Next level <span aria-hidden="true">➜</span>';
   camera.position.set(startX + 10, 25, startZ + 22);
@@ -1051,9 +1041,6 @@ window.addEventListener('keydown', (event) => {
 });
 window.addEventListener('keyup', (event) => keys.delete(event.key.toLowerCase()));
 window.addEventListener('blur', () => { keys.clear(); endDrive(); });
-document.querySelector('#reset').addEventListener('click', () => {
-  beginLevel(level);
-});
 document.querySelector('#next-level').addEventListener('click', () => beginLevel(level + 1));
 document.querySelector('#retry-level').addEventListener('click', () => beginLevel(level));
 document.querySelector('#sound-toggle').addEventListener('click', () => {
@@ -1190,15 +1177,10 @@ function animate() {
     if (speed > 0.2) timerStarted = true;
     if (timerStarted) {
       levelElapsed += dt;
-      document.querySelector('#level-time').textContent = formatTime(levelElapsed);
     }
     if (checkpointMarker.visible && Math.hypot(car.position.x - checkpointMarker.position.x, car.position.z - checkpointMarker.position.z) < 4) {
       activePickup++;
       updateObjective();
-      const progress = document.querySelector('#star-progress');
-      progress.classList.remove('pop');
-      void progress.offsetWidth;
-      progress.classList.add('pop');
       playNote(659, 0, 0.18, 0.07);
       playNote(880, 0.09, 0.23, 0.065);
     }
