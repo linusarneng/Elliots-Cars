@@ -821,25 +821,27 @@ function playCrashSound() {
 function updateEngineSound(dt = 1 / 60) {
   if (!audioContext || !engineGain) return;
   const now = audioContext.currentTime;
-  const throttle = (input.active && Math.hypot(input.axisX, input.axisY) > 0.12) || keys.has('w') || keys.has('arrowup') || keys.has(' ');
-  const acceleration = Math.max(0, (speed - lastSoundSpeed) / Math.max(dt, 0.016));
-  lastSoundSpeed = speed;
-  const targetRpm = 54 + speed * 11 + (throttle ? 14 : 0) + Math.min(13, acceleration * 1.8);
+  const throttle = (input.active && Math.hypot(input.axisX, input.axisY) > 0.12) || keys.has('w') || keys.has('arrowup') || keys.has('s') || keys.has('arrowdown') || keys.has(' ');
+  const roadSpeed = Math.abs(speed);
+  const acceleration = Math.max(0, (roadSpeed - lastSoundSpeed) / Math.max(dt, 0.016));
+  lastSoundSpeed = roadSpeed;
+  const targetRpm = 54 + roadSpeed * 11 + (throttle ? 14 : 0) + Math.min(13, acceleration * 1.8);
   engineRpm = THREE.MathUtils.damp(engineRpm, targetRpm, 5.5, dt);
-  const volume = soundOn && !completed && !crashing && (speed > 0.05 || throttle) ? 0.023 + speed * 0.0028 : 0;
+  const volume = soundOn && !completed && !crashing && (roadSpeed > 0.05 || throttle) ? 0.023 + roadSpeed * 0.0028 : 0;
   engineGain.gain.setTargetAtTime(volume, now, 0.11);
   engineTone.frequency.setTargetAtTime(engineRpm, now, 0.06);
   engineSubTone.frequency.setTargetAtTime(engineRpm * 0.5, now, 0.06);
   engineOvertone.frequency.setTargetAtTime(engineRpm * 2.02, now, 0.06);
   enginePulse.frequency.setTargetAtTime(engineRpm * 0.25, now, 0.08);
-  engineFilter.frequency.setTargetAtTime(185 + speed * 42 + (throttle ? 75 : 0), now, 0.08);
-  roadNoiseGain.gain.setTargetAtTime(speed * 0.028, now, 0.12);
+  engineFilter.frequency.setTargetAtTime(185 + roadSpeed * 42 + (throttle ? 75 : 0), now, 0.08);
+  roadNoiseGain.gain.setTargetAtTime(roadSpeed * 0.028, now, 0.12);
 }
-const input = { active: false, pointerId: null, source: null, startX: 0, startY: 0, dragX: 0, dragZ: 0, axisX: 0, axisY: 0 };
+const input = { active: false, pointerId: null, source: null, startX: 0, startY: 0, dragX: 0, dragZ: 0, axisX: 0, axisY: 0, reverse: false };
 const pointerRay = new THREE.Raycaster();
 const drivePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const startGround = new THREE.Vector3();
 const currentGround = new THREE.Vector3();
+const carScreenPosition = new THREE.Vector3();
 function groundPoint(clientX, clientY, target) {
   const rect = canvas.getBoundingClientRect();
   pointerRay.setFromCamera(new THREE.Vector2(
@@ -857,6 +859,10 @@ function startDrive(event, source) {
   input.source = source;
   input.startX = event.clientX;
   input.startY = event.clientY;
+  const rect = canvas.getBoundingClientRect();
+  carScreenPosition.set(car.position.x, car.position.y + 0.9, car.position.z).project(camera);
+  const carMiddleY = rect.top + (1 - carScreenPosition.y) * rect.height / 2;
+  input.reverse = event.clientY > carMiddleY;
   input.dragX = 0;
   input.dragZ = 0;
   input.axisX = 0;
@@ -881,6 +887,7 @@ function endDrive(event) {
   input.source = null;
   input.axisX = 0;
   input.axisY = 0;
+  input.reverse = false;
 }
 canvas.addEventListener('pointerdown', (event) => startDrive(event, canvas));
 canvas.addEventListener('pointermove', updateDrive);
@@ -1036,7 +1043,7 @@ function beginLevel(number) {
 const keys = new Set();
 window.addEventListener('keydown', (event) => {
   if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.preventDefault();
-  if (['w', 'arrowup', ' '].includes(event.key.toLowerCase())) ensureAudio();
+  if (['w', 'arrowup', 's', 'arrowdown', ' '].includes(event.key.toLowerCase())) ensureAudio();
   keys.add(event.key.toLowerCase());
 });
 window.addEventListener('keyup', (event) => keys.delete(event.key.toLowerCase()));
@@ -1098,6 +1105,7 @@ function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
   const keyboardForward = keys.has('w') || keys.has('arrowup') || keys.has(' ');
+  const keyboardReverse = !keyboardForward && (keys.has('s') || keys.has('arrowdown'));
   const draggingScene = input.active && input.source === canvas;
   const keySteer = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
   if (carReady && !completed && !crashing) {
@@ -1114,17 +1122,18 @@ function animate() {
         const toParkingZ = parkingMarker.position.z - car.position.z;
         if (activePickup === activeLevel.pickups.length && Math.hypot(toParkingX, toParkingZ) < 6) targetYaw = Math.atan2(toParkingX, toParkingZ);
       }
+      if (input.reverse) targetYaw += Math.PI;
       const turn = Math.atan2(Math.sin(targetYaw - car.rotation.y), Math.cos(targetYaw - car.rotation.y));
-      const turnRate = 2.25 * Math.min(1, 0.55 + speed * 0.16);
+      const turnRate = 2.25 * Math.min(1, 0.55 + Math.abs(speed) * 0.16);
       car.rotation.y += THREE.MathUtils.clamp(turn, -turnRate * dt, turnRate * dt);
-      // The drag sets a direction, so holding keeps the car moving forward.
+      // The drag sets a travel direction; a touch below the car makes it back into that direction.
       const cornerSpeed = THREE.MathUtils.clamp(1 - Math.abs(turn) / Math.PI, 0.32, 1);
-      const desiredSpeed = Math.min(7.2, 2.5 + dragAmount * 4.2) * cornerSpeed;
-      speed = THREE.MathUtils.clamp(desiredSpeed, Math.max(0, speed - 12 * dt), speed + 8 * dt);
+      const desiredSpeed = (input.reverse ? -1 : 1) * Math.min(input.reverse ? 4.8 : 7.2, 2.5 + dragAmount * 4.2) * cornerSpeed;
+      speed = THREE.MathUtils.clamp(desiredSpeed, speed - 12 * dt, speed + 8 * dt);
     } else {
-      speed = THREE.MathUtils.damp(speed, keyboardForward ? 6.6 : 0, keyboardForward ? 1.8 : 4.4, dt);
+      speed = THREE.MathUtils.damp(speed, keyboardForward ? 6.6 : keyboardReverse ? -4.8 : 0, keyboardForward || keyboardReverse ? 1.8 : 4.4, dt);
       if (Math.abs(speed) < 0.015) speed = 0;
-      if (keyboardForward && keySteer) car.rotation.y += keySteer * Math.min(2, speed * 0.38) * dt;
+      if ((keyboardForward || keyboardReverse) && keySteer) car.rotation.y += keySteer * Math.sign(speed) * Math.min(2, Math.abs(speed) * 0.38) * dt;
     }
     const impactSpeed = speed;
     const desiredX = car.position.x + Math.sin(car.rotation.y) * speed * dt;
@@ -1136,20 +1145,20 @@ function animate() {
       hitSolid = true;
       nextX = car.position.x;
       nextZ = car.position.z;
-      speed = Math.min(speed, 0.2);
+      speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
     }
     if (activeLevel.environment === 'roundabout' && Math.hypot(nextX - 5, nextZ - 4) < 7.05) {
       hitSolid = true;
       nextX = car.position.x;
       nextZ = car.position.z;
-      speed = Math.min(speed, 0.2);
+      speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
     }
     for (const island of solidIslands) {
       if (Math.hypot(nextX - island.x, nextZ - island.z) < 2.45) {
         hitSolid = true;
         nextX = car.position.x;
         nextZ = car.position.z;
-        speed = Math.min(speed, 0.2);
+        speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
         break;
       }
     }
@@ -1159,7 +1168,7 @@ function animate() {
         hitSolid = true;
         nextX = car.position.x;
         nextZ = car.position.z;
-        speed = Math.min(speed, 0.25);
+        speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.25);
         break;
       }
     }
@@ -1174,7 +1183,7 @@ function animate() {
     } else {
       car.position.set(activeLevel.type === 'garage' && nextZ < -6.1 ? THREE.MathUtils.clamp(nextX, doorwayX - 1.65, doorwayX + 1.65) : nextX, 0, nextZ);
     }
-    if (speed > 0.2) timerStarted = true;
+    if (Math.abs(speed) > 0.2) timerStarted = true;
     if (timerStarted) {
       levelElapsed += dt;
     }
@@ -1221,8 +1230,8 @@ function animate() {
       document.querySelector('#win-screen').hidden = false;
       playWinSound();
     }
-    if (hitSolid) speed = Math.min(speed, 0.2);
-    if (hitSolid && impactSpeed > 1.8 && !completed) startCrash();
+    if (hitSolid) speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
+    if (hitSolid && Math.abs(impactSpeed) > 1.8 && !completed) startCrash();
   }
   if (crashing) {
     crashTime += dt;
