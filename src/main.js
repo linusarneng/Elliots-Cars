@@ -796,6 +796,9 @@ const bobbyCar = createBobbyCar();
 car.add(bobbyCar.group);
 let vehicle = 'volvo';
 let lastCarYaw = 0;
+// Max speed chosen with the tortoise-to-hare slider in the menu (0.5x to 2x).
+let speedSetting = 1;
+try { speedSetting = THREE.MathUtils.clamp(Number(localStorage.getItem('speed')) || 1, 0.5, 2); } catch {}
 let cameraZoom = 1;
 // The bobby car is much smaller than the Volvo, so it can get closer to things before touching them.
 function vehicleShrink() {
@@ -1617,8 +1620,8 @@ function animate() {
       const straightZone = 0.52;
       const sideways = Math.abs(dragAngle) > straightZone ? Math.sign(dragAngle) * Math.min(1, (Math.abs(dragAngle) - straightZone) / (Math.PI / 2 - straightZone)) : 0;
       const deadZone = sideways * Math.min(1, Math.abs(input.axisX) * 1.4);
-      const steerRate = vehicle === 'bobby' ? (cameraMode === 'near' ? 0.7 : 0.85) : 1.2;
-      driveSteering = THREE.MathUtils.damp(driveSteering, Math.sign(deadZone) * deadZone * deadZone * steerRate, 3.5, dt);
+      const steerRate = vehicle === 'bobby' ? (cameraMode === 'near' ? 1.5 : 1.8) : 2;
+      driveSteering = THREE.MathUtils.damp(driveSteering, Math.sign(deadZone) * Math.abs(deadZone) ** 1.3 * steerRate, 5, dt);
       // Turning the wheel right swings the nose right going forward, and the tail right in reverse.
       car.rotation.y -= driveSteering * Math.min(1, 0.4 + Math.abs(speed) * 0.2) * Math.sign(speed || 1) * dt;
     } else if (draggingScene && dragAmount >= 0.12) {
@@ -1668,7 +1671,7 @@ function animate() {
     }
     const impactSpeed = speed;
     // The bobby car is small and the camera is close, so it covers less ground at the same pace.
-    const travel = speed * dt * (vehicle === 'bobby' ? (openWorldActive ? 0.8 : 0.5) : 1);
+    const travel = speed * dt * (vehicle === 'bobby' ? (openWorldActive ? 0.8 : 0.5) : 1) * speedSetting;
     const desiredX = car.position.x + Math.sin(car.rotation.y) * travel;
     const desiredZ = car.position.z + Math.cos(car.rotation.y) * travel;
     let hitSolid = false;
@@ -1899,6 +1902,7 @@ function refreshMenu() {
   for (const tile of menu.querySelectorAll('[data-vehicle]')) tile.classList.toggle('selected', tile.dataset.vehicle === vehicle);
   for (const tile of menu.querySelectorAll('[data-camera]')) tile.classList.toggle('selected', tile.dataset.camera === cameraMode);
   document.querySelector('#menu-sound-icon').textContent = soundOn ? '🔊' : '🔇';
+  document.querySelector('#speed-slider').value = speedSetting;
 }
 function showLevelGrid() {
   const grid = document.querySelector('#level-grid');
@@ -1930,6 +1934,10 @@ function openMenu() {
 function closeMenu() {
   menu.hidden = true;
 }
+document.querySelector('#speed-slider').addEventListener('input', (event) => {
+  speedSetting = Number(event.target.value);
+  try { localStorage.setItem('speed', String(speedSetting)); } catch {}
+});
 window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !menu.hidden) closeMenu(); });
 document.querySelector('#menu-button').addEventListener('click', () => {
   tapSound();
