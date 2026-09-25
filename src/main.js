@@ -1593,10 +1593,12 @@ function animate() {
       const push = Math.min(1, dragAmount);
       const desiredSpeed = input.reverse ? -(1.5 + push * 2.3) : 2.5 + push * 4.7;
       speed = THREE.MathUtils.damp(speed, desiredSpeed, input.reverse ? 2.5 : 3, dt);
-      const steer = Math.abs(input.axisX) > 0.12 ? input.axisX : 0;
+      // Gentle, eased steering; the bobby car and the close-up view turn softer still.
+      const deadZone = Math.abs(input.axisX) > 0.15 ? input.axisX - Math.sign(input.axisX) * 0.15 : 0;
+      const steerRate = vehicle === 'bobby' ? (cameraMode === 'near' ? 1.1 : 1.4) : 2.1;
+      driveSteering = THREE.MathUtils.damp(driveSteering, deadZone * steerRate, 6, dt);
       // Turning the wheel right swings the nose right going forward, and the tail right in reverse.
-      car.rotation.y -= steer * 2.3 * Math.min(1, 0.35 + Math.abs(speed) * 0.2) * Math.sign(speed || 1) * dt;
-      driveSteering = 0;
+      car.rotation.y -= driveSteering * Math.min(1, 0.4 + Math.abs(speed) * 0.2) * Math.sign(speed || 1) * dt;
     } else if (draggingScene && dragAmount >= 0.12) {
       if (!input.directionChosen) {
         // Choose forward or reverse from the drag relative to the car's current heading.
@@ -1644,13 +1646,18 @@ function animate() {
     }
     const impactSpeed = speed;
     // The bobby car is small and the camera is close, so it covers less ground at the same pace.
-    const travel = speed * dt * (vehicle === 'bobby' ? 0.5 : 1);
+    const travel = speed * dt * (vehicle === 'bobby' ? (openWorldActive ? 0.8 : 0.5) : 1);
     const desiredX = car.position.x + Math.sin(car.rotation.y) * travel;
     const desiredZ = car.position.z + Math.cos(car.rotation.y) * travel;
     let hitSolid = false;
     if (openWorldActive) {
-      hitSolid = openWorld.blocks(car.position.x, car.position.z, desiredX, desiredZ, car.rotation.y, vehicle === 'bobby');
-      if (!hitSolid) car.position.set(desiredX, 0, desiredZ);
+      const small = vehicle === 'bobby';
+      const { x, z } = car.position;
+      // Glide along walls and furniture instead of stopping dead against them.
+      if (!openWorld.blocks(x, z, desiredX, desiredZ, car.rotation.y, small)) car.position.set(desiredX, 0, desiredZ);
+      else if (!openWorld.blocks(x, z, desiredX, z, car.rotation.y, small)) car.position.x = desiredX;
+      else if (!openWorld.blocks(x, z, x, desiredZ, car.rotation.y, small)) car.position.z = desiredZ;
+      else hitSolid = true;
     } else {
       let nextX = THREE.MathUtils.clamp(desiredX, driveBounds.minX, driveBounds.maxX);
       let nextZ = THREE.MathUtils.clamp(desiredZ, activeLevel.environment === 'roundabout' ? driveBounds.roundMinZ : -15.5, driveBounds.maxZ);
@@ -1746,7 +1753,8 @@ function animate() {
       }
     }
     if (hitSolid) speed = Math.sign(speed) * Math.min(Math.abs(speed), 0.2);
-    if (hitSolid && Math.abs(impactSpeed) > 1.8 && !completed) startCrash();
+    // In the open world the kid just bumps softly into things, no crash.
+    if (hitSolid && Math.abs(impactSpeed) > 1.8 && !completed && !(openWorldActive && vehicle === 'bobby')) startCrash();
   }
   if (crashing) {
     crashTime += dt;
@@ -1831,13 +1839,94 @@ function animate() {
 }
 const openWorld = createOpenWorld({
   environments: { garage: garageEnvironment, store: storeEnvironment, mcdonalds: mcdonaldsEnvironment, roundabout: roundaboutEnvironment },
-  asphaltTexture, grassMaterial: ground.material, mergeStatic, random, signTexture: mcdSignTexture, archesTexture,
+  asphaltTexture, grassMaterial: ground.material, mergeStatic, random, signTexture: mcdSignTexture, archesTexture, icaSignTexture: storeSignTexture,
 });
 scene.add(openWorld.group);
 for (const environment of [garageEnvironment, storeEnvironment, mcdonaldsEnvironment, roundaboutEnvironment]) {
   mergeStatic(environment, environment === garageEnvironment ? garageDoors : []);
 }
 mergeStatic(outerParkingLines);
+// ---- Menu: big picture buttons, easy for a four-year-old ----
+const menu = document.querySelector('#menu');
+const menuMain = document.querySelector('#menu-main');
+const menuLevels = document.querySelector('#menu-levels');
+const PLACE_ICONS = { garage: '🏠', store: '🛒', mcdonalds: '🍔', roundabout: '🔄' };
+function tapSound() {
+  ensureAudio();
+  playNote(740, 0, 0.09, 0.05);
+}
+function refreshMenu() {
+  for (const tile of menu.querySelectorAll('[data-vehicle]')) tile.classList.toggle('selected', tile.dataset.vehicle === vehicle);
+  for (const tile of menu.querySelectorAll('[data-camera]')) tile.classList.toggle('selected', tile.dataset.camera === cameraMode);
+  document.querySelector('#menu-sound-icon').textContent = soundOn ? '🔊' : '🔇';
+}
+function showLevelGrid() {
+  const grid = document.querySelector('#level-grid');
+  grid.replaceChildren(...levels.map((entry, index) => {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = `level-tile place-${entry.environment}${!openWorldActive && index + 1 === level ? ' current' : ''}`;
+    tile.setAttribute('aria-label', `Level ${index + 1}`);
+    tile.innerHTML = `<span class="tile-icon">${PLACE_ICONS[entry.environment]}</span><span class="level-number">${index + 1}</span>`;
+    tile.addEventListener('click', () => {
+      tapSound();
+      beginLevel(index + 1);
+      closeMenu();
+    });
+    return tile;
+  }));
+  menuMain.hidden = true;
+  menuLevels.hidden = false;
+  menu.scrollTop = 0;
+}
+function openMenu() {
+  endDrive();
+  refreshMenu();
+  menuMain.hidden = false;
+  menuLevels.hidden = true;
+  menu.hidden = false;
+  menu.scrollTop = 0;
+}
+function closeMenu() {
+  menu.hidden = true;
+}
+document.querySelector('#menu-button').addEventListener('click', () => {
+  tapSound();
+  openMenu();
+});
+menu.addEventListener('click', (event) => {
+  const tile = event.target.closest('button');
+  if (!tile || tile.classList.contains('level-tile')) return;
+  tapSound();
+  const { action } = tile.dataset;
+  if (tile.dataset.vehicle) {
+    vehicle = tile.dataset.vehicle;
+    try { localStorage.setItem('vehicle', vehicle); } catch {}
+    showVehicle();
+  } else if (tile.dataset.camera) {
+    cameraMode = tile.dataset.camera;
+    lookYaw = 0;
+    lookPitch = 0;
+    lookDistance = 1;
+    showCameraButton();
+  } else if (action === 'play') {
+    closeMenu();
+  } else if (action === 'levels') {
+    showLevelGrid();
+    return;
+  } else if (action === 'back') {
+    menuLevels.hidden = true;
+    menuMain.hidden = false;
+  } else if (action === 'world') {
+    enterOpenWorld();
+    closeMenu();
+  } else if (action === 'sound') {
+    document.querySelector('#sound-toggle').click();
+  } else if (action === 'fullscreen') {
+    document.querySelector('#fullscreen-toggle').click();
+  }
+  refreshMenu();
+});
 const requestedLevel = Number(new URLSearchParams(window.location.search).get('level'));
 beginLevel(Number.isInteger(requestedLevel) && requestedLevel >= 1 && requestedLevel <= levels.length ? requestedLevel : 1);
 animate();

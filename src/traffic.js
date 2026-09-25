@@ -92,11 +92,26 @@ export function createTraffic({ loops, lightNode, signNodes, parkedSpots, random
   const parked = parkedSpots.map(([x, z, heading]) => ({ x, z, heading }));
   const colors = [...cars, ...parked].map((_, i) => new THREE.Color(PAINTS[(i * 7) % PAINTS.length]));
 
-  function sample(path, s) {
+  // Blend between the two nearest samples so cars glide instead of stepping.
+  const blended = { x: 0, z: 0, heading: 0 };
+  function sample(path, s, out = blended) {
     const wrapped = ((s % path.length) + path.length) % path.length;
-    return path.samples[Math.min(path.samples.length - 1, Math.floor(wrapped / path.step))];
+    const exact = wrapped / path.step;
+    const i = Math.floor(exact) % path.samples.length;
+    const a = path.samples[i];
+    const b = path.samples[(i + 1) % path.samples.length];
+    const t = exact - Math.floor(exact);
+    out.x = a.x + (b.x - a.x) * t;
+    out.z = a.z + (b.z - a.z) * t;
+    out.heading = a.heading + Math.atan2(Math.sin(b.heading - a.heading), Math.cos(b.heading - a.heading)) * t;
+    return out;
   }
-  for (const car of cars) Object.assign(car, sample(car.path, car.s));
+  for (const car of cars) {
+    const point = sample(car.path, car.s);
+    car.x = point.x;
+    car.z = point.z;
+    car.heading = point.heading;
+  }
 
   function lightState(time) {
     let t = time % CYCLE_LENGTH;

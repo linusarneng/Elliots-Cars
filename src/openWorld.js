@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { createMcDonalds } from './mcdonalds.js';
 import { createTraffic } from './traffic.js';
+import { createIca } from './ica.js';
 
 // Free-roam town: a compact grid of streets with the level locations in its
 // blocks (a McDonald's you can drive into, the garage yard, ICA and the
@@ -97,7 +98,22 @@ const iceCreamSignMaterial = new THREE.MeshBasicMaterial({ map: textureFrom(256,
   ctx.fillText('GLASS', w / 2, h / 2 + 2);
 }) });
 
-export function createOpenWorld({ environments, asphaltTexture, grassMaterial, mergeStatic, random, signTexture, archesTexture }) {
+const fuelSignMaterial = new THREE.MeshBasicMaterial({ map: textureFrom(256, 52, (ctx, w, h) => {
+  ctx.fillStyle = '#d8362d'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 34px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('BENSIN & KAFFE', w / 2, h / 2 + 2);
+}) });
+const priceSignMaterial = new THREE.MeshBasicMaterial({ map: textureFrom(128, 172, (ctx, w, h) => {
+  ctx.fillStyle = '#1b1d21'; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px Arial'; ctx.textAlign = 'center'; ctx.fillText('BENSIN', w / 2, 30);
+  ctx.textAlign = 'left'; ctx.font = 'bold 20px Arial';
+  [['95', '18.49'], ['98', '19.29'], ['D', '19.89']].forEach(([name, price], i) => {
+    ctx.fillStyle = '#f5c030'; ctx.fillText(name, 10, 70 + i * 38);
+    ctx.fillStyle = '#7dff8a'; ctx.fillText(price, 50, 70 + i * 38);
+  });
+}) });
+
+export function createOpenWorld({ environments, asphaltTexture, grassMaterial, mergeStatic, random, signTexture, archesTexture, icaSignTexture }) {
   const group = new THREE.Group();
   group.position.x = OFFSET_X;
   group.visible = false;
@@ -231,7 +247,6 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
   // ---- The level locations, placed in the blocks ----
   const placements = [
     { key: 'garage', x: 74, z: 0, turn: 0 },
-    { key: 'store', x: 5, z: 72, turn: Math.PI },
     { key: 'roundabout', x: 77.5, z: 70, turn: Math.PI },
   ];
   const clones = [];
@@ -252,6 +267,21 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
   const mcd = createMcDonalds({ signTexture, archesTexture });
   mcd.group.position.set(MCD_ORIGIN[0], 0, MCD_ORIGIN[1]);
   group.add(mcd.group);
+  // ---- ICA supermarket you can drive into, entrance facing the main street ----
+  const ica = createIca({ signTexture: icaSignTexture });
+  ica.group.position.set(-6, 0, 78);
+  ica.group.rotation.y = Math.PI;
+  group.add(ica.group);
+  for (let x = -24; x <= 28.01; x += 3.4) {
+    if (x > -10 && x < -2) continue; // walkway to the entrance
+    flat(paving, M.paint, x - 0.08, x + 0.08, 50, 57, -0.012);
+  }
+  flat(paving, M.paint, -24, 28, 49.9, 50.1, -0.012);
+  for (let i = 0; i < 5; i++) flat(paving, M.yellowPaint, -9.4 + i * 1.6, -8.8 + i * 1.6, 50, 66.5, -0.011);
+  // Trolley bay by the car park
+  box(props, 5, 0.12, 2.4, M.red, 22, 2.4, 61);
+  for (const [x, z] of [[19.6, 60], [24.4, 60], [19.6, 62], [24.4, 62]]) box(props, 0.1, 2.4, 0.1, M.pole, x, 1.2, z, true);
+
   // Parking stalls either side of the walkway to the door
   for (const [from, to] of [[-15, -6.5], [4.5, 27]]) {
     for (let x = from; x <= to + 0.01; x += 3.4) {
@@ -384,10 +414,57 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
     for (const side of [-1, 1]) box(props, 2.4, 0.1, 0.4, M.wood, x, 0.6, z + side * 0.85);
     for (const side of [-1, 1]) box(props, 0.12, 1, 1, M.darkWood, x + side * 1, 0.5, z);
   }
-  // Food truck plaza on the east side of the roundabout block
-  flat(paving, M.sidewalk, 88, 105, 47, 78, -0.02);
+  // Petrol station with a drive-through car wash on the east side of the roundabout block
+  flat(paving, M.sidewalk, 86, 105, 46, 80, -0.02);
+  const canopyMat = M.white;
+  box(props, 16, 0.8, 11, canopyMat, 96, 5.2, 57);
+  box(props, 16.2, 0.4, 11.2, M.red, 96, 4.7, 57);
+  for (const [x, z] of [[89, 53], [103, 53], [89, 61], [103, 61]]) box(props, 0.5, 4.6, 0.5, M.white, x, 2.3, z, true);
+  for (const z of [54, 60]) {
+    box(props, 8, 0.25, 1.4, M.curb, 96, 0.12, z, true);
+    for (const x of [93, 99]) {
+      box(props, 1, 1.9, 0.7, M.white, x, 1.2, z, true);
+      box(props, 1.02, 0.5, 0.72, M.red, x, 1.95, z);
+      box(props, 0.6, 0.35, 0.05, M.window, x, 1.45, z + 0.37);
+      box(props, 0.6, 0.35, 0.05, M.window, x, 1.45, z - 0.37);
+      cyl(props, 0.04, 1.2, M.darkPole, x + 0.55, 1, z, false, 6);
+    }
+  }
+  // Shop
+  box(props, 9, 4, 7, M.white, 99.5, 2, 73, true);
+  box(props, 9.4, 0.8, 7.4, M.red, 99.5, 4.2, 73);
+  box(props, 6, 2.4, 0.1, M.glass, 99.5, 1.8, 69.45);
+  const fuelSign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.2), fuelSignMaterial);
+  fuelSign.position.set(99.5, 4.2, 69.28);
+  props.add(fuelSign);
+  // Price pylon
+  box(props, 0.5, 6, 0.5, M.darkPole, 104, 3, 48, true);
+  box(props, 2.6, 3.4, 0.4, M.red, 104, 6.6, 48);
+  const prices = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 3.1), priceSignMaterial);
+  prices.position.set(104, 6.6, 48.21);
+  props.add(prices);
+  const pricesBack = prices.clone();
+  pricesBack.position.z = 47.79;
+  pricesBack.rotation.y = Math.PI;
+  props.add(pricesBack);
+  // Air and water post
+  box(props, 0.6, 1.4, 0.6, M.blue, 104, 0.7, 66, true);
+  // Car wash: open at both ends, with brushes that spin all the time
+  for (const x of [86.6, 92.4]) box(props, 0.4, 4.5, 11, M.blue, x, 2.25, 73.5, true);
+  box(props, 6.4, 0.5, 11, M.blue, 89.5, 4.7, 73.5);
+  box(props, 6.4, 0.9, 0.3, M.yellow, 89.5, 4.2, 67.9);
+  const washBrushes = [];
+  const brushMaterial = std('#3aa0ff', { roughness: 1 });
+  for (const [x, z] of [[87.6, 72], [91.4, 72], [87.6, 75.5], [91.4, 75.5]]) {
+    const brush = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 3.6, 10, 1), brushMaterial);
+    brush.position.set(x, 2.1, z);
+    brush.castShadow = true;
+    washBrushes.push(brush);
+    group.add(brush);
+  }
+  // The food truck parks at the park by the pond
   const truck = new THREE.Group();
-  truck.position.set(100, 0, 58);
+  truck.position.set(26, 0, 96.5);
   props.add(truck);
   box(truck, 3, 3, 7, M.blue, 0, 1.9, 0, true);
   box(truck, 2.8, 1.8, 2.2, M.white, 0, 1.3, 4.4, true);
@@ -397,8 +474,7 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
     const wheel = cyl(truck, 0.55, 0.4, M.darkPole, side * 1.45, 0.55, wz, false, 14);
     wheel.rotation.z = Math.PI / 2;
   }
-  for (const [x, z] of [[93, 52], [93, 60], [93, 68]]) picnicTable(x, z);
-  for (const [x, z] of [[90, 75], [104, 75], [90, 49], [104, 48]]) tree(x, z, 0.8);
+  picnicTable(20.5, 100.5);
   // Extra parking on the west side of the roundabout block
   for (let z = 47; z <= 78; z += 3.4) flat(paving, M.paint, 43, 50, z - 0.08, z + 0.08, -0.012);
   flat(paving, M.paint, 49.9, 50.1, 47, 78.2, -0.012);
@@ -585,13 +661,82 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
       [-12.9, 6.8, Math.PI], [9.9, 6.8, Math.PI], [16.7, 6.8, Math.PI], [23.5, 6.8, Math.PI],
       [-9.5, 25.8, 0], [6.5, 25.8, 0], [13.3, 25.8, 0], [20.1, 25.8, 0],
       [66, 12, 0.35], [88, 8, 1.3],
-      [15, 68, 0], [3, 68, Math.PI], [-9, 68, 0], [-15, 68, Math.PI],
+      [15.1, 53.5, 0], [4.9, 53.5, Math.PI], [-15.5, 53.5, 0], [-18.9, 53.5, Math.PI], [96, 57, Math.PI / 2],
       [96, 100, Math.PI / 2], [60, 101, -Math.PI / 2],
       [46.5, 52.1, -Math.PI / 2], [46.5, 58.9, Math.PI / 2], [46.5, 69.1, -Math.PI / 2], [46.5, 75.9, Math.PI / 2],
     ],
     random,
   });
   group.add(traffic.group);
+
+  // ---- Pedestrians strolling along the sidewalks ----
+  const people = [];
+  const shirtColors = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22', '#ecf0f1', '#2ecc71', '#fd79a8'].map((c) => std(c));
+  const trouserColors = ['#34495e', '#2c3e50', '#7f8c8d', '#1e3799'].map((c) => std(c));
+  const skinColors = ['#f1c7a4', '#d9a37e', '#a36f4f', '#f5d6bd'].map((c) => std(c, { roughness: 0.7 }));
+  const hairColors = ['#3b2a1d', '#e6c47c', '#1c1c1c', '#8b4a2b'].map((c) => std(c));
+  const ringOffset = 6.2;
+  const ring = [[V_ROADS[0] - ringOffset, H_ROADS[0] - ringOffset], [V_ROADS[2] + ringOffset, H_ROADS[0] - ringOffset], [V_ROADS[2] + ringOffset, H_ROADS[2] + ringOffset], [V_ROADS[0] - ringOffset, H_ROADS[2] + ringOffset]];
+  const walks = [
+    { points: ring, start: 0 }, { points: ring, start: 0.2 }, { points: ring, start: 0.45 },
+    { points: [...ring].reverse(), start: 0.1 }, { points: [...ring].reverse(), start: 0.6 }, { points: [...ring].reverse(), start: 0.8 },
+    { points: [[-38, 43.9], [28, 43.9]], start: 0.3 }, { points: [[44, 43.9], [104, 43.9]], start: 0.7 },
+    { points: [[-38, 31.9], [28, 31.9]], start: 0.55 },
+  ];
+  walks.forEach((walk, index) => {
+    const legs = [];
+    const person = new THREE.Group();
+    group.add(person);
+    for (const side of [-0.2, 0.2]) {
+      const leg = new THREE.Group();
+      leg.position.set(side, 1.15, 0);
+      person.add(leg);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.15, 0.3), trouserColors[index % trouserColors.length]);
+      mesh.position.y = -0.57;
+      leg.add(mesh);
+      legs.push(leg);
+    }
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.15, 0.5), shirtColors[index % shirtColors.length]);
+    body.position.y = 1.72;
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 9), skinColors[index % skinColors.length]);
+    head.position.y = 2.6;
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), hairColors[(index * 3) % hairColors.length]);
+    hair.position.set(0, 2.64, -0.03);
+    person.add(body, head, hair);
+    // Segment lengths for walking around the loop
+    const segments = walk.points.map((point, i) => {
+      const next = walk.points[(i + 1) % walk.points.length];
+      return { from: point, to: next, length: Math.hypot(next[0] - point[0], next[1] - point[1]) };
+    });
+    const total = segments.reduce((sum, seg) => sum + seg.length, 0);
+    people.push({ person, legs, segments, total, s: walk.start * total, speed: 1.5 + (index % 3) * 0.2, phase: index, x: 0, z: 0 });
+  });
+  function updatePeople(dt, player) {
+    for (const p of people) {
+      // Wait politely if the kid is right in front of them
+      const blocked = Math.hypot(player.x - p.x, player.z - p.z) < 2.6;
+      const step = blocked ? 0 : p.speed * dt;
+      p.s = (p.s + step) % p.total;
+      let rest = p.s;
+      let seg = p.segments[0];
+      for (const candidate of p.segments) {
+        seg = candidate;
+        if (rest <= candidate.length) break;
+        rest -= candidate.length;
+      }
+      const t = seg.length ? rest / seg.length : 0;
+      p.x = seg.from[0] + (seg.to[0] - seg.from[0]) * t;
+      p.z = seg.from[1] + (seg.to[1] - seg.from[1]) * t;
+      p.person.position.set(p.x, 0, p.z);
+      const heading = Math.atan2(seg.to[0] - seg.from[0], seg.to[1] - seg.from[1]);
+      p.person.rotation.y = THREE.MathUtils.lerp(p.person.rotation.y, p.person.rotation.y + Math.atan2(Math.sin(heading - p.person.rotation.y), Math.cos(heading - p.person.rotation.y)), Math.min(1, dt * 8));
+      if (!blocked) p.phase += dt * p.speed * 4.2;
+      const swing = blocked ? 0 : Math.sin(p.phase) * 0.45;
+      p.legs[0].rotation.x = swing;
+      p.legs[1].rotation.x = -swing;
+      p.person.position.y = blocked ? 0 : Math.abs(Math.sin(p.phase)) * 0.05;
+    }
+  }
 
   // ---- Colliders: measure everything solid, then merge the static meshes ----
   group.updateMatrixWorld(true);
@@ -613,12 +758,13 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
   const islandCenter = roundabout.localToWorld(new THREE.Vector3(5, 0, 4));
   circles.push({ x: islandCenter.x, z: islandCenter.z, r: 7.05 });
   for (const mesh of solidMeshes) pushBox(mesh);
-  for (const mesh of mcd.solids) {
+  for (const mesh of [...mcd.solids, ...ica.solids]) {
     pushBox(mesh);
     if (mesh.userData.colliderOnly) mesh.removeFromParent();
   }
   for (const { place } of clones) mergeStatic(place);
   for (const part of mcd.staticGroups) mergeStatic(part, mcd.dynamic);
+  for (const part of ica.staticGroups) mergeStatic(part, ica.dynamic);
   mergeStatic(props);
   mergeStatic(paving);
 
@@ -652,6 +798,8 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
 
   let clock = 0;
   const playerLocal = { x: 0, z: 0 };
+  const scratchPlayer = new THREE.Vector3();
+  const scratchCamera = new THREE.Vector3();
   return {
     group,
     spawn: { x: OFFSET_X + MCD_ORIGIN[0], z: MCD_ORIGIN[1] + 21, heading: Math.PI },
@@ -672,12 +820,20 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
       for (const axis of ['ns', 'ew']) {
         for (const color of ['red', 'yellow', 'green']) lightMaterials[axis][color].emissiveIntensity = light[axis] === color ? 2.4 : 0;
       }
+      updatePeople(dt, playerLocal);
       dynamicCircles.length = 0;
       traffic.solidCircles(dynamicCircles);
+      for (const p of people) dynamicCircles.push({ x: p.x, z: p.z, r: 0.45 });
       for (const circle of dynamicCircles) circle.x += OFFSET_X;
-      return mcd.update(dt,
-        { x: playerLocal.x - MCD_ORIGIN[0], z: playerLocal.z - MCD_ORIGIN[1] },
-        { x: camera.x - OFFSET_X - MCD_ORIGIN[0], z: camera.z - MCD_ORIGIN[1] });
+      for (const brush of washBrushes) brush.rotation.y += dt * 6;
+      // Each building works in its own coordinates, whichever way it is turned.
+      let indoors = false;
+      for (const building of [mcd, ica]) {
+        const local = building.group.worldToLocal(scratchPlayer.copy(player));
+        const cameraLocal = building.group.worldToLocal(scratchCamera.copy(camera));
+        if (building.update(dt, local, cameraLocal)) indoors = true;
+      }
+      return indoors;
     },
   };
 }

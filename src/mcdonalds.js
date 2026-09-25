@@ -340,7 +340,8 @@ export function createMcDonalds({ signTexture, archesTexture }) {
       cyl(interior, 0.1, 0.08, 0.35, mat.white, x + 0.25, 1.32, z - 0.1);
     }
   }
-  for (const [x, z] of [[-10, 1], [-10, 6], [-5.5, 1], [-5.5, 6], [-1, 6]]) tableSet(x, z, 4);
+  // Tables stay west of the entrance so the way in from the door is clear.
+  for (const [x, z] of [[-10.5, 1], [-10.5, 6.2], [-6, 1], [-6, 6.2]]) tableSet(x, z, 4);
   // Booth along the west windows
   box(interior, 1.2, 1.1, 8, mat.red, minX + 0.9, 0.55, -4, true);
   box(interior, 0.35, 1.2, 8, mat.red, minX + 0.4, 1.5, -4);
@@ -349,11 +350,12 @@ export function createMcDonalds({ signTexture, archesTexture }) {
   // WC door and sign on the west wall
   box(interior, 0.12, 3, 1.8, mat.wood, minX + 0.3, 1.5, -8.2);
   plane(interior, 1, 0.5, mat.wc, minX + 0.38, 3.4, -8.2, Math.PI / 2);
-  // Tray return and bin
-  box(interior, 1.8, 1.8, 1, mat.wood, 3, 0.9, 8.6, true);
-  plane(interior, 1.2, 0.6, mat.trash, 3, 1.3, 8.08, Math.PI);
-  box(interior, 1.8, 0.1, 1.1, mat.counterTop, 3, 1.85, 8.6);
-  for (let i = 0; i < 4; i++) box(interior, 0.9, 0.04, 0.6, mat.red, 3, 1.95 + i * 0.05, 8.6);
+  // Tray return and bin, beside (not in front of) the entrance
+  const trayX = -4.4;
+  box(interior, 1.8, 1.8, 1, mat.wood, trayX, 0.9, 8.9, true);
+  plane(interior, 1.2, 0.6, mat.trash, trayX, 1.3, 8.38, Math.PI);
+  box(interior, 1.8, 0.1, 1.1, mat.counterTop, trayX, 1.85, 8.9);
+  for (let i = 0; i < 4; i++) box(interior, 0.9, 0.04, 0.6, mat.red, trayX, 1.95 + i * 0.05, 8.9);
 
   // ---- PlayPlace in the south-east corner ----
   const play = new THREE.Group();
