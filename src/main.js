@@ -1114,7 +1114,6 @@ const pointerRay = new THREE.Raycaster();
 const drivePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const startGround = new THREE.Vector3();
 const currentGround = new THREE.Vector3();
-const viewForward = new THREE.Vector3();
 function groundPoint(clientX, clientY, target) {
   const rect = canvas.getBoundingClientRect();
   pointerRay.setFromCamera(new THREE.Vector2(
@@ -1146,14 +1145,7 @@ function updateDrive(event) {
   if (input.source === canvas) {
     input.axisX = THREE.MathUtils.clamp((event.clientX - input.startX) / 115, -1, 1);
     input.axisY = THREE.MathUtils.clamp((event.clientY - input.startY) / 115, -1, 1);
-    if (cameraMode !== 'top') {
-      // Low cameras look along the ground, so steer relative to the view: up on screen is straight ahead.
-      camera.getWorldDirection(viewForward);
-      viewForward.y = 0;
-      viewForward.normalize();
-      input.dragX = (-viewForward.z * input.axisX - viewForward.x * input.axisY) * 10;
-      input.dragZ = (viewForward.x * input.axisX - viewForward.z * input.axisY) * 10;
-    } else if (groundPoint(input.startX, input.startY, startGround) && groundPoint(event.clientX, event.clientY, currentGround)) {
+    if (groundPoint(input.startX, input.startY, startGround) && groundPoint(event.clientX, event.clientY, currentGround)) {
       input.dragX = currentGround.x - startGround.x;
       input.dragZ = currentGround.z - startGround.z;
     }
@@ -1594,7 +1586,18 @@ function animate() {
   const keySteer = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
   if (carReady && !completed && !crashing) {
     const dragAmount = Math.hypot(input.axisX, input.axisY);
-    if (draggingScene && dragAmount >= 0.12) {
+    if (draggingScene && dragAmount >= 0.12 && cameraMode !== 'top') {
+      // GTA-style joystick for the cameras behind the player: drag up to drive,
+      // down to reverse, left/right to turn that way.
+      input.reverse = input.axisY > 0.3;
+      const push = Math.min(1, dragAmount);
+      const desiredSpeed = input.reverse ? -(1.5 + push * 2.3) : 2.5 + push * 4.7;
+      speed = THREE.MathUtils.damp(speed, desiredSpeed, input.reverse ? 2.5 : 3, dt);
+      const steer = Math.abs(input.axisX) > 0.12 ? input.axisX : 0;
+      // Turning the wheel right swings the nose right going forward, and the tail right in reverse.
+      car.rotation.y -= steer * 2.3 * Math.min(1, 0.35 + Math.abs(speed) * 0.2) * Math.sign(speed || 1) * dt;
+      driveSteering = 0;
+    } else if (draggingScene && dragAmount >= 0.12) {
       if (!input.directionChosen) {
         // Choose forward or reverse from the drag relative to the car's current heading.
         // Keep that choice for this gesture so turning the car cannot suddenly switch gears.
