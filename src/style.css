@@ -15,38 +15,88 @@
 .topbar{left:auto;right:0;justify-content:flex-end;padding:calc(12px + env(safe-area-inset-top)) calc(12px + env(safe-area-inset-right)) 0 0}.top-actions{gap:8px}.fullscreen-toggle,.sound-toggle{width:44px;min-width:44px;height:44px;padding:0}.fullscreen-label{display:none}
 .level-badge{position:absolute;top:calc(14px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);padding:10px 22px;border-radius:100px;background:rgba(255,255,255,.93);box-shadow:0 8px 25px rgba(13,30,41,.15);color:#2d495b;font-size:18px;font-weight:900;letter-spacing:.04em;white-space:nowrap;pointer-events:none}@media(max-width:700px){.level-badge{top:calc(12px + env(safe-area-inset-top));padding:9px 18px;font-size:16px}}
 
-/* ---- Child-friendly menu ---- */
+/* ---- Toy-box UI: styled like the yellow bobby car itself ----
+   Chunky glossy plastic, a thick "lip" under every button, and one rounded
+   typeface so it reads like a toy rather than an app. */
+:root{
+  --toy-yellow:#ffc62e;--toy-yellow-deep:#e59f00;
+  --toy-red:#ef3f36;--toy-red-deep:#b8231c;
+  --toy-green:#35c46a;--toy-green-deep:#1f8f46;
+  --toy-blue:#3aa7f0;--toy-blue-deep:#1c73b5;
+  --toy-ink:#1d3557;--toy-paper:#fffdf6;
+  --toy-font:"Fredoka",ui-rounded,"Avenir Next","Trebuchet MS",sans-serif;
+}
+.level-badge,.menu,.menu-button,.win-card,.crash-message,.loading{font-family:var(--toy-font)}
 .top-actions{display:none}
-.menu-button{position:absolute;top:calc(12px + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));z-index:6;width:72px;height:72px;border:4px solid #fff;border-radius:50%;background:#ffcf33;box-shadow:0 7px 0 #d9a100,0 12px 30px rgba(13,30,41,.25);font-size:38px;line-height:1;cursor:pointer;touch-action:manipulation;display:grid;place-items:center}
-.menu-button:active{transform:translateY(5px);box-shadow:0 2px 0 #d9a100}
-.menu{position:absolute;inset:0;z-index:20;overflow-y:auto;-webkit-overflow-scrolling:touch;background:linear-gradient(160deg,#7fd3ff,#b8f0c8 60%,#fff3b0);padding:calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom))}
+
+/* Home button: a round red horn */
+.menu-button{position:absolute;top:calc(12px + env(safe-area-inset-top));left:calc(12px + env(safe-area-inset-left));z-index:6;display:grid;place-items:center;width:76px;height:76px;border:5px solid var(--toy-yellow);border-radius:50%;background:radial-gradient(circle at 35% 30%,#ff7a6f,var(--toy-red) 55%);box-shadow:0 7px 0 var(--toy-red-deep),0 14px 26px rgba(29,53,87,.3);font-size:36px;line-height:1;cursor:pointer;touch-action:manipulation;transition:transform .1s}
+.menu-button:active{transform:translateY(5px);box-shadow:0 2px 0 var(--toy-red-deep),0 6px 14px rgba(29,53,87,.3)}
+
+/* Level sign: a yellow number plate */
+.level-badge{left:auto;right:calc(12px + env(safe-area-inset-right));top:calc(16px + env(safe-area-inset-top));transform:none;padding:10px 20px;border:4px solid var(--toy-ink);border-radius:16px;background:var(--toy-yellow);color:var(--toy-ink);font-size:22px;font-weight:700;letter-spacing:.02em;box-shadow:0 5px 0 var(--toy-yellow-deep)}
+
+/* Popup */
+.menu{position:absolute;inset:0;z-index:20;display:grid;place-items:center;padding:calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));background:rgba(29,53,87,.42);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
 .menu[hidden],.menu-panel[hidden]{display:none}
-.menu-panel{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
-.menu-title{margin:4px 0 6px;text-align:center;font-size:clamp(34px,7vw,52px);font-weight:900;color:#fff;text-shadow:0 4px 0 #2b7bb9,0 8px 20px rgba(0,0,0,.18);letter-spacing:.02em}
-.menu-heading{margin:10px 4px 0;font-size:24px;font-weight:900;color:#1f5f86}
-.tile-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-.tile-row-3{grid-template-columns:1fr 1fr 1fr}
-.tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:130px;padding:12px;border:5px solid #fff;border-radius:30px;background:#fff;color:#234;font:inherit;font-weight:900;cursor:pointer;touch-action:manipulation;box-shadow:0 9px 0 rgba(0,0,0,.14),0 14px 26px rgba(0,0,0,.12);transition:transform .12s}
-.tile:active{transform:translateY(6px) scale(.97);box-shadow:0 3px 0 rgba(0,0,0,.14)}
-.tile-icon{font-size:58px;line-height:1}
-.tile-label{font-size:24px}
-.tile-play{min-height:120px;flex-direction:row;gap:18px;background:#3ccf72;color:#fff;border-color:#e9fff0}
-.tile-play .tile-label{font-size:38px}
-.tile-levels{background:#ff7f7f;color:#fff}
-.tile-world{background:#6aa9ff;color:#fff}
-.tile-choice.selected{background:#ffe066;border-color:#ff9f1c;box-shadow:0 0 0 5px #ff9f1c,0 9px 0 rgba(0,0,0,.14)}
-.tile-small{min-height:100px}
-.tile-small .tile-icon{font-size:44px}
-.tile-small .tile-label{font-size:20px}
-.menu-top{display:grid;grid-template-columns:80px 1fr 80px;align-items:center}
-.back-button{width:72px;height:72px;border:4px solid #fff;border-radius:50%;background:#fff;font-size:36px;cursor:pointer;box-shadow:0 7px 0 rgba(0,0,0,.14);touch-action:manipulation}
-.back-button:active{transform:translateY(5px)}
-.level-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:14px}
-.level-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:118px;border:5px solid #fff;border-radius:26px;color:#fff;font:inherit;cursor:pointer;touch-action:manipulation;box-shadow:0 8px 0 rgba(0,0,0,.16)}
-.level-tile:active{transform:translateY(5px)}
-.level-tile .tile-icon{font-size:42px}
-.level-tile .level-number{font-size:34px;font-weight:900;text-shadow:0 2px 0 rgba(0,0,0,.2)}
-.level-tile.current{box-shadow:0 0 0 6px #ffcf33,0 8px 0 rgba(0,0,0,.16)}
-.place-garage{background:#e0765f}.place-store{background:#e3000b}.place-mcdonalds{background:#f5b400}.place-roundabout{background:#3d9be9}
-.level-badge{left:auto;right:calc(12px + env(safe-area-inset-right));transform:none}
-@media(max-width:480px){.tile{min-height:112px}.tile-icon{font-size:48px}.tile-label{font-size:20px}.tile-row-3 .tile-label{font-size:17px}}
+.menu-card{position:relative;width:min(100%,540px);max-height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:22px 22px 26px;border:10px solid var(--toy-yellow);border-radius:44px;background:var(--toy-paper);box-shadow:0 12px 0 var(--toy-yellow-deep),0 30px 60px rgba(29,53,87,.35);color:var(--toy-ink);animation:toy-pop .38s cubic-bezier(.2,1.5,.45,1) both;transform-origin:10% 0}
+@keyframes toy-pop{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:scale(1)}}
+.menu-panel{display:flex;flex-direction:column;gap:18px}
+.menu-title{margin:0 56px;text-align:center;font-size:clamp(30px,7vw,40px);font-weight:700;line-height:1.1;color:var(--toy-red);text-shadow:0 3px 0 #ffd9d5}
+.menu-close{position:absolute;top:12px;right:12px;display:grid;place-items:center;width:54px;height:54px;border:0;border-radius:50%;background:#e9eef5;color:var(--toy-ink);font:700 26px var(--toy-font);box-shadow:0 5px 0 #c6d0dd;cursor:pointer;touch-action:manipulation}
+.menu-close:active{transform:translateY(4px);box-shadow:0 1px 0 #c6d0dd}
+
+/* The big Drive button is the one loud thing */
+.drive-big{display:flex;align-items:center;justify-content:center;gap:16px;min-height:104px;border:0;border-radius:34px;background:linear-gradient(#4fdc83,var(--toy-green));color:#fff;font:700 44px var(--toy-font);text-shadow:0 3px 0 var(--toy-green-deep);box-shadow:0 10px 0 var(--toy-green-deep),inset 0 5px 0 rgba(255,255,255,.35);cursor:pointer;touch-action:manipulation}
+.drive-big-icon{display:grid;place-items:center;width:62px;height:62px;padding-left:6px;border-radius:50%;background:#fff;color:var(--toy-green);font-size:30px;text-shadow:none}
+.drive-big:active{transform:translateY(7px);box-shadow:0 3px 0 var(--toy-green-deep)}
+
+.place-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.place-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:118px;border:0;border-radius:30px;color:#fff;font:700 24px var(--toy-font);cursor:pointer;touch-action:manipulation;box-shadow:inset 0 5px 0 rgba(255,255,255,.3)}
+.place-tile .tile-icon{font-size:50px;line-height:1}
+.place-levels{background:var(--toy-red);box-shadow:0 8px 0 var(--toy-red-deep),inset 0 5px 0 rgba(255,255,255,.3)}
+.place-town{background:var(--toy-blue);box-shadow:0 8px 0 var(--toy-blue-deep),inset 0 5px 0 rgba(255,255,255,.3)}
+.place-tile:active{transform:translateY(6px);box-shadow:0 2px 0 rgba(0,0,0,.25)}
+
+.choice-group{display:flex;flex-direction:column;gap:8px}
+.choice-title{margin:0 6px;font-size:21px;font-weight:600;color:var(--toy-ink)}
+.choice-row{display:flex;gap:12px}
+.choice{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:96px;border:4px solid #dfe6ef;border-radius:26px;background:#fff;color:var(--toy-ink);font:600 18px var(--toy-font);box-shadow:0 6px 0 #dfe6ef;cursor:pointer;touch-action:manipulation}
+.choice .tile-icon{font-size:40px;line-height:1.1}
+.choice:active{transform:translateY(4px);box-shadow:0 2px 0 #dfe6ef}
+.choice.selected{border-color:var(--toy-yellow-deep);background:#fff3c4;box-shadow:0 6px 0 var(--toy-yellow-deep)}
+.choice.selected::after{content:"✓";position:absolute;top:-12px;right:-8px;display:grid;place-items:center;width:34px;height:34px;border:3px solid #fff;border-radius:50%;background:var(--toy-green);color:#fff;font:700 18px var(--toy-font)}
+
+.small-row{display:flex;justify-content:center;gap:18px}
+.round-button{display:grid;place-items:center;width:68px;height:68px;border:0;border-radius:50%;background:#e9eef5;color:var(--toy-ink);font:700 30px var(--toy-font);box-shadow:0 6px 0 #c6d0dd;cursor:pointer;touch-action:manipulation}
+.round-button:active{transform:translateY(4px);box-shadow:0 2px 0 #c6d0dd}
+
+/* Level picker: number plates coloured by place */
+.levels-top{display:grid;grid-template-columns:68px 1fr 68px;align-items:center}
+.levels-top .menu-title{margin:0}
+.level-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px}
+.level-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:98px;border:0;border-radius:24px;color:#fff;font:700 30px var(--toy-font);text-shadow:0 2px 0 rgba(0,0,0,.2);cursor:pointer;touch-action:manipulation;box-shadow:inset 0 4px 0 rgba(255,255,255,.3),0 6px 0 rgba(0,0,0,.22)}
+.level-tile .tile-icon{font-size:34px;text-shadow:none}
+.level-tile:active{transform:translateY(4px);box-shadow:0 2px 0 rgba(0,0,0,.22)}
+.level-tile.current{outline:5px solid var(--toy-yellow);outline-offset:3px}
+.place-garage{background:#e07a5f}.place-store{background:#e3000b}.place-mcdonalds{background:#f2a900}.place-roundabout{background:#3aa7f0}
+
+/* Win card and crash message in the same toy style */
+.win-card{border:10px solid var(--toy-yellow);border-radius:44px;background:var(--toy-paper);box-shadow:0 12px 0 var(--toy-yellow-deep),0 30px 60px rgba(29,53,87,.35)}
+.win-card h1{color:var(--toy-red);font-weight:700}
+.win-card p{color:var(--toy-ink);font-weight:600}
+.win-card button{border-radius:28px;background:linear-gradient(#4fdc83,var(--toy-green));font-family:var(--toy-font);font-weight:700;box-shadow:0 9px 0 var(--toy-green-deep)}
+.win-card button:active{box-shadow:0 3px 0 var(--toy-green-deep)}
+.win-card #retry-level{background:#e9eef5;color:var(--toy-ink);box-shadow:0 9px 0 #c6d0dd}
+.crash-message{border:8px solid var(--toy-yellow);border-radius:36px;background:var(--toy-paper);color:var(--toy-ink)}
+
+@media(max-width:480px){
+  .menu-card{padding:18px 14px 22px;border-width:8px;border-radius:36px}
+  .menu-button{width:64px;height:64px;font-size:30px}
+  .level-badge{font-size:18px;padding:8px 14px}
+  .drive-big{min-height:90px;font-size:38px}
+  .place-tile{min-height:104px}
+  .choice{min-height:88px;font-size:16px}
+  .choice .tile-icon{font-size:34px}
+}
+@media(prefers-reduced-motion:reduce){.menu-card{animation:none}}

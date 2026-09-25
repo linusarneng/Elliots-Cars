@@ -4,7 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#758ca1" />
-    <title>Volvo V70 Garage Drive</title>
+    <title>Elliot's Cars</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <div id="app">
@@ -14,32 +17,42 @@
       </header>
       <button id="menu-button" class="menu-button" type="button" aria-label="Open menu"><span aria-hidden="true">🏠</span></button>
       <div id="menu" class="menu" hidden>
-        <div class="menu-panel" id="menu-main" role="dialog" aria-label="Menu">
-          <h1 class="menu-title">Elliot's Cars</h1>
-          <button class="tile tile-play" data-action="play" type="button"><span class="tile-icon">▶️</span><span class="tile-label">Drive!</span></button>
-          <div class="tile-row">
-            <button class="tile tile-levels" data-action="levels" type="button"><span class="tile-icon">🏁</span><span class="tile-label">Levels</span></button>
-            <button class="tile tile-world" data-action="world" type="button"><span class="tile-icon">🏙️</span><span class="tile-label">Town</span></button>
+        <div class="menu-card" role="dialog" aria-modal="true" aria-label="Menu">
+          <button class="menu-close" data-action="play" type="button" aria-label="Close menu">✕</button>
+          <div class="menu-panel" id="menu-main">
+            <h1 class="menu-title">Elliot's Cars</h1>
+            <button class="drive-big" data-action="play" type="button"><span class="drive-big-icon" aria-hidden="true">▶</span>Drive</button>
+            <div class="place-row">
+              <button class="place-tile place-levels" data-action="levels" type="button"><span class="tile-icon" aria-hidden="true">🏁</span><span class="tile-label">Levels</span></button>
+              <button class="place-tile place-town" data-action="world" type="button"><span class="tile-icon" aria-hidden="true">🏙️</span><span class="tile-label">Town</span></button>
+            </div>
+            <div class="choice-group">
+              <h2 class="choice-title">Who drives?</h2>
+              <div class="choice-row">
+                <button class="choice" data-vehicle="volvo" type="button" aria-label="Car"><span class="tile-icon" aria-hidden="true">🚙</span><span class="choice-label">Car</span></button>
+                <button class="choice" data-vehicle="bobby" type="button" aria-label="Bobby car"><span class="tile-icon" aria-hidden="true">🧒</span><span class="choice-label">Bobby car</span></button>
+              </div>
+            </div>
+            <div class="choice-group">
+              <h2 class="choice-title">Camera</h2>
+              <div class="choice-row">
+                <button class="choice" data-camera="top" type="button" aria-label="Camera from above"><span class="tile-icon" aria-hidden="true">🛰️</span><span class="choice-label">Above</span></button>
+                <button class="choice" data-camera="chase" type="button" aria-label="Camera behind"><span class="tile-icon" aria-hidden="true">🎥</span><span class="choice-label">Behind</span></button>
+                <button class="choice" data-camera="near" type="button" aria-label="Camera close up"><span class="tile-icon" aria-hidden="true">👀</span><span class="choice-label">Close</span></button>
+              </div>
+            </div>
+            <div class="small-row">
+              <button class="round-button" data-action="sound" type="button" aria-label="Sound on or off"><span id="menu-sound-icon" aria-hidden="true">🔊</span></button>
+              <button class="round-button" data-action="fullscreen" type="button" aria-label="Big screen"><span aria-hidden="true">⛶</span></button>
+            </div>
           </div>
-          <h2 class="menu-heading">Who drives?</h2>
-          <div class="tile-row">
-            <button class="tile tile-choice" data-vehicle="volvo" type="button"><span class="tile-icon">🚙</span><span class="tile-label">Car</span></button>
-            <button class="tile tile-choice" data-vehicle="bobby" type="button"><span class="tile-icon">🧒</span><span class="tile-label">Bobby car</span></button>
+          <div class="menu-panel" id="menu-levels" hidden>
+            <div class="levels-top">
+              <button class="round-button" data-action="back" type="button" aria-label="Back"><span aria-hidden="true">⬅</span></button>
+              <h1 class="menu-title">Levels</h1>
+            </div>
+            <div class="level-grid" id="level-grid"></div>
           </div>
-          <h2 class="menu-heading">Camera</h2>
-          <div class="tile-row tile-row-3">
-            <button class="tile tile-choice" data-camera="top" type="button"><span class="tile-icon">🛰️</span><span class="tile-label">Above</span></button>
-            <button class="tile tile-choice" data-camera="chase" type="button"><span class="tile-icon">🎥</span><span class="tile-label">Behind</span></button>
-            <button class="tile tile-choice" data-camera="near" type="button"><span class="tile-icon">👀</span><span class="tile-label">Close</span></button>
-          </div>
-          <div class="tile-row">
-            <button class="tile tile-small" data-action="sound" type="button"><span class="tile-icon" id="menu-sound-icon">🔊</span><span class="tile-label">Sound</span></button>
-            <button class="tile tile-small" data-action="fullscreen" type="button"><span class="tile-icon">⛶</span><span class="tile-label">Big screen</span></button>
-          </div>
-        </div>
-        <div class="menu-panel" id="menu-levels" role="dialog" aria-label="Levels" hidden>
-          <div class="menu-top"><button class="back-button" data-action="back" type="button" aria-label="Back">⬅️</button><h1 class="menu-title">Levels</h1></div>
-          <div class="level-grid" id="level-grid"></div>
         </div>
       </div>
       <div class="level-badge" id="level-badge" aria-live="polite">Level 1</div>

@@ -1890,11 +1890,17 @@ function openMenu() {
 function closeMenu() {
   menu.hidden = true;
 }
+window.addEventListener('keydown', (event) => { if (event.key === 'Escape' && !menu.hidden) closeMenu(); });
 document.querySelector('#menu-button').addEventListener('click', () => {
   tapSound();
   openMenu();
 });
 menu.addEventListener('click', (event) => {
+  // Tapping the dimmed game around the popup closes it.
+  if (event.target === menu) {
+    closeMenu();
+    return;
+  }
   const tile = event.target.closest('button');
   if (!tile || tile.classList.contains('level-tile')) return;
   tapSound();
