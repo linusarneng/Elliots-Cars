@@ -26,11 +26,14 @@ scene.add(ambient);
 const sun = new THREE.DirectionalLight('#fff0d1', 3.1);
 sun.position.set(-28, 45, 20);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -65;
-sun.shadow.camera.right = 65;
-sun.shadow.camera.top = 65;
-sun.shadow.camera.bottom = -65;
+// The shadow area follows the player, so it only needs to cover what's on screen.
+// Phones and tablets get a smaller shadow map, which is much cheaper to draw.
+const touchDevice = matchMedia('(pointer: coarse)').matches;
+sun.shadow.mapSize.set(touchDevice ? 1024 : 2048, touchDevice ? 1024 : 2048);
+sun.shadow.camera.left = -45;
+sun.shadow.camera.right = 45;
+sun.shadow.camera.top = 45;
+sun.shadow.camera.bottom = -45;
 sun.shadow.normalBias = 0.025;
 scene.add(sun, sun.target);
 
@@ -925,7 +928,8 @@ new GLTFLoader().load(carUrl, (gltf) => {
   // The open world's traffic and parked cars reuse the Volvo's meshes.
   const modelMeshes = [];
   model.traverse((child) => { if (child.isMesh) modelMeshes.push(child); });
-  openWorld.setCarModel(car, modelMeshes, blackPaint);
+  trafficModel = [car, modelMeshes, blackPaint];
+  if (openWorld) openWorld.setCarModel(...trafficModel);
   for (const lens of reverseLampMeshes) {
     const position = new THREE.Box3().setFromObject(lens).getCenter(new THREE.Vector3());
     car.worldToLocal(position);
@@ -1287,7 +1291,7 @@ function beginLevel(number) {
     showCameraButton();
   }
   openWorldActive = false;
-  openWorld.group.visible = false;
+  if (openWorld) openWorld.group.visible = false;
   for (const object of [routeGroup, coneGroup, islandGroup, ...parkedCars]) object.visible = true;
   showMapButton();
   activeLevel = levels[level - 1];
@@ -1453,6 +1457,18 @@ function showMapButton() {
   mapToggle.title = mapToggle.getAttribute('aria-label');
 }
 function enterOpenWorld() {
+  // First visit: show the loading note while the town is built.
+  if (!openWorld) {
+    const note = document.querySelector('#loading');
+    note.lastChild.textContent = ' Building the town...';
+    note.classList.remove('hidden');
+    setTimeout(() => {
+      buildOpenWorld();
+      note.classList.add('hidden');
+      enterOpenWorld();
+    }, 40);
+    return;
+  }
   openWorldActive = true;
   crashing = false;
   completed = false;
@@ -1594,9 +1610,15 @@ function animate() {
       const desiredSpeed = input.reverse ? -(1.5 + push * 2.3) : 2.5 + push * 4.7;
       speed = THREE.MathUtils.damp(speed, desiredSpeed, input.reverse ? 2.5 : 3, dt);
       // Gentle, eased steering; the bobby car and the close-up view turn softer still.
-      const deadZone = Math.abs(input.axisX) > 0.15 ? input.axisX - Math.sign(input.axisX) * 0.15 : 0;
-      const steerRate = vehicle === 'bobby' ? (cameraMode === 'near' ? 1.1 : 1.4) : 2.1;
-      driveSteering = THREE.MathUtils.damp(driveSteering, deadZone * steerRate, 6, dt);
+      // Wide dead zone and a squared response: small finger wobbles barely turn, a big drag turns properly.
+      // Steering follows the drag's angle, not its sideways drift: anything within
+      // about 30° of straight up (or down) drives dead straight.
+      const dragAngle = Math.atan2(input.axisX, Math.abs(input.axisY) + 1e-6);
+      const straightZone = 0.52;
+      const sideways = Math.abs(dragAngle) > straightZone ? Math.sign(dragAngle) * Math.min(1, (Math.abs(dragAngle) - straightZone) / (Math.PI / 2 - straightZone)) : 0;
+      const deadZone = sideways * Math.min(1, Math.abs(input.axisX) * 1.4);
+      const steerRate = vehicle === 'bobby' ? (cameraMode === 'near' ? 0.7 : 0.85) : 1.2;
+      driveSteering = THREE.MathUtils.damp(driveSteering, Math.sign(deadZone) * deadZone * deadZone * steerRate, 3.5, dt);
       // Turning the wheel right swings the nose right going forward, and the tail right in reverse.
       car.rotation.y -= driveSteering * Math.min(1, 0.4 + Math.abs(speed) * 0.2) * Math.sign(speed || 1) * dt;
     } else if (draggingScene && dragAmount >= 0.12) {
@@ -1824,7 +1846,7 @@ function animate() {
       guideArrow.rotation.z += angleDifference * blend;
     }
   }
-  if (openWorldActive) openWorld.update(dt, car.position, camera.position);
+  if (openWorldActive) openWorld.update(dt, car.position, camera.position, speed, vehicle === 'bobby');
   updateCamera(dt);
   if (crashing) {
     const shake = Math.exp(-7 * crashTime);
@@ -1837,11 +1859,29 @@ function animate() {
   sun.position.set(car.position.x - 28, 45, car.position.z + 20);
   renderer.render(scene, camera);
 }
-const openWorld = createOpenWorld({
-  environments: { garage: garageEnvironment, store: storeEnvironment, mcdonalds: mcdonaldsEnvironment, roundabout: roundaboutEnvironment },
-  asphaltTexture, grassMaterial: ground.material, mergeStatic, random, signTexture: mcdSignTexture, archesTexture, icaSignTexture: storeSignTexture,
-});
-scene.add(openWorld.group);
+// The town is only built the first time you go there, so starting the game and
+// playing levels never pays for it. It copies the level scenery before that is merged.
+const townSources = {
+  garage: garageEnvironment.clone(true),
+  roundabout: roundaboutEnvironment.clone(true),
+};
+let openWorld = null;
+let trafficModel = null;
+function buildOpenWorld() {
+  if (openWorld) return openWorld;
+  openWorld = createOpenWorld({
+    environments: townSources,
+    asphaltTexture, grassMaterial: ground.material, mergeStatic, random, signTexture: mcdSignTexture, archesTexture, icaSignTexture: storeSignTexture,
+  });
+  scene.add(openWorld.group);
+  // A soft 'boing' when the player bumps into someone walking.
+  openWorld.onBump = () => {
+    playNote(520, 0, 0.12, 0.07);
+    playNote(330, 0.08, 0.2, 0.06);
+  };
+  if (trafficModel) openWorld.setCarModel(...trafficModel);
+  return openWorld;
+}
 for (const environment of [garageEnvironment, storeEnvironment, mcdonaldsEnvironment, roundaboutEnvironment]) {
   mergeStatic(environment, environment === garageEnvironment ? garageDoors : []);
 }

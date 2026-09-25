@@ -670,53 +670,122 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
   group.add(traffic.group);
 
   // ---- Pedestrians strolling along the sidewalks ----
-  const people = [];
-  const shirtColors = ['#e74c3c', '#3498db', '#f1c40f', '#9b59b6', '#1abc9c', '#e67e22', '#ecf0f1', '#2ecc71', '#fd79a8'].map((c) => std(c));
-  const trouserColors = ['#34495e', '#2c3e50', '#7f8c8d', '#1e3799'].map((c) => std(c));
-  const skinColors = ['#f1c7a4', '#d9a37e', '#a36f4f', '#f5d6bd'].map((c) => std(c, { roughness: 0.7 }));
-  const hairColors = ['#3b2a1d', '#e6c47c', '#1c1c1c', '#8b4a2b'].map((c) => std(c));
+  // Every body part is one instanced mesh shared by all walkers (a few draw calls
+  // for the whole crowd); per-person colours come from instance colours.
   const ringOffset = 6.2;
   const ring = [[V_ROADS[0] - ringOffset, H_ROADS[0] - ringOffset], [V_ROADS[2] + ringOffset, H_ROADS[0] - ringOffset], [V_ROADS[2] + ringOffset, H_ROADS[2] + ringOffset], [V_ROADS[0] - ringOffset, H_ROADS[2] + ringOffset]];
   const walks = [
-    { points: ring, start: 0 }, { points: ring, start: 0.2 }, { points: ring, start: 0.45 },
-    { points: [...ring].reverse(), start: 0.1 }, { points: [...ring].reverse(), start: 0.6 }, { points: [...ring].reverse(), start: 0.8 },
+    { points: ring, start: 0 }, { points: ring, start: 0.2 }, { points: ring, start: 0.45 }, { points: ring, start: 0.7 },
+    { points: [...ring].reverse(), start: 0.1 }, { points: [...ring].reverse(), start: 0.35 }, { points: [...ring].reverse(), start: 0.6 }, { points: [...ring].reverse(), start: 0.85 },
     { points: [[-38, 43.9], [28, 43.9]], start: 0.3 }, { points: [[44, 43.9], [104, 43.9]], start: 0.7 },
-    { points: [[-38, 31.9], [28, 31.9]], start: 0.55 },
+    { points: [[-38, 31.9], [28, 31.9]], start: 0.55 }, { points: [[43, 31.9], [104, 31.9]], start: 0.15 },
+    { points: [[-37, -28.9], [28, -28.9]], start: 0.4 }, { points: [[43, -28.9], [104, -28.9]], start: 0.8 },
   ];
-  walks.forEach((walk, index) => {
-    const legs = [];
-    const person = new THREE.Group();
-    group.add(person);
-    for (const side of [-0.2, 0.2]) {
-      const leg = new THREE.Group();
-      leg.position.set(side, 1.15, 0);
-      person.add(leg);
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.15, 0.3), trouserColors[index % trouserColors.length]);
-      mesh.position.y = -0.57;
-      leg.add(mesh);
-      legs.push(leg);
+  const palette = {
+    shirt: ['#d9534f', '#3b7dd8', '#f0c419', '#8e5bc2', '#1fa187', '#ea7b2c', '#f4f1ea', '#4caf50', '#f07aa0', '#2f3e56'],
+    trousers: ['#2d3e50', '#39465a', '#6d7478', '#1f3b73', '#5b4636', '#a3a8ad'],
+    skin: ['#f3d2b5', '#e0b08a', '#b67d57', '#8a5a3c', '#f6dcc6'],
+    hair: ['#2a1b12', '#d8b36a', '#111111', '#7b3f1d', '#b9b2a6', '#e0a06a'],
+    shoes: ['#222222', '#f2f2f2', '#6b3e26', '#2a4b8d'],
+  };
+  const white = (roughness = 0.8) => new THREE.MeshStandardMaterial({ color: '#ffffff', roughness });
+  const count = walks.length;
+  const partDefs = {
+    torso: { geometry: new THREE.CapsuleGeometry(0.24, 0.42, 4, 12), per: 1, color: 'shirt' },
+    hips: { geometry: new THREE.CapsuleGeometry(0.22, 0.12, 4, 12), per: 1, color: 'trousers' },
+    leg: { geometry: new THREE.CapsuleGeometry(0.1, 0.72, 4, 10), per: 2, color: 'trousers' },
+    shoe: { geometry: new THREE.CapsuleGeometry(0.08, 0.16, 4, 8), per: 2, color: 'shoes' },
+    arm: { geometry: new THREE.CapsuleGeometry(0.075, 0.5, 4, 8), per: 2, color: 'shirt' },
+    hand: { geometry: new THREE.SphereGeometry(0.075, 8, 6), per: 2, color: 'skin' },
+    neck: { geometry: new THREE.CylinderGeometry(0.07, 0.08, 0.14, 8), per: 1, color: 'skin' },
+    head: { geometry: new THREE.SphereGeometry(0.2, 16, 12), per: 1, color: 'skin' },
+    hair: { geometry: new THREE.SphereGeometry(0.215, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), per: 1, color: 'hair' },
+    ponytail: { geometry: new THREE.CapsuleGeometry(0.09, 0.28, 4, 8), per: 1, color: 'hair' },
+    eyes: { geometry: new THREE.SphereGeometry(0.025, 6, 4), per: 2, color: null },
+  };
+  const parts = {};
+  for (const [name, def] of Object.entries(partDefs)) {
+    const material = def.color ? white(name === 'hair' ? 0.9 : 0.8) : new THREE.MeshStandardMaterial({ color: '#1b1b1b', roughness: 0.3 });
+    const mesh = new THREE.InstancedMesh(def.geometry, material, count * def.per);
+    mesh.castShadow = name !== 'eyes' && name !== 'hand';
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    group.add(mesh);
+    parts[name] = mesh;
+  }
+  const people = walks.map((walk, index) => {
+    const pick = (list, salt) => list[(index * 7 + salt * 3) % list.length];
+    const look = {
+      shirt: new THREE.Color(pick(palette.shirt, 1)),
+      trousers: new THREE.Color(pick(palette.trousers, 2)),
+      skin: new THREE.Color(pick(palette.skin, 3)),
+      hair: new THREE.Color(pick(palette.hair, 4)),
+      shoes: new THREE.Color(pick(palette.shoes, 5)),
+    };
+    for (const [name, def] of Object.entries(partDefs)) {
+      if (!def.color) continue;
+      for (let k = 0; k < def.per; k++) parts[name].setColorAt(index * def.per + k, look[def.color]);
     }
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.15, 0.5), shirtColors[index % shirtColors.length]);
-    body.position.y = 1.72;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 9), skinColors[index % skinColors.length]);
-    head.position.y = 2.6;
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), hairColors[(index * 3) % hairColors.length]);
-    hair.position.set(0, 2.64, -0.03);
-    person.add(body, head, hair);
-    // Segment lengths for walking around the loop
     const segments = walk.points.map((point, i) => {
       const next = walk.points[(i + 1) % walk.points.length];
       return { from: point, to: next, length: Math.hypot(next[0] - point[0], next[1] - point[1]) };
     });
     const total = segments.reduce((sum, seg) => sum + seg.length, 0);
-    people.push({ person, legs, segments, total, s: walk.start * total, speed: 1.5 + (index % 3) * 0.2, phase: index, x: 0, z: 0 });
+    return {
+      segments, total, s: walk.start * total, x: 0, z: 0, heading: 0, phase: index * 1.7,
+      speed: 1.35 + (index % 4) * 0.12,
+      height: 0.92 + ((index * 37) % 17) / 100, // people are not all the same size
+      build: 0.92 + ((index * 53) % 15) / 100,
+      ponytail: index % 3 === 1,
+    };
   });
+  for (const mesh of Object.values(parts)) if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+
+  const personMatrix = new THREE.Matrix4();
+  const partMatrix = new THREE.Matrix4();
+  const limbMatrix = new THREE.Matrix4();
+  const offsetMatrix = new THREE.Matrix4();
+  const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+  const tmpQ = new THREE.Quaternion();
+  const tmpV = new THREE.Vector3();
+  const tmpS = new THREE.Vector3();
+  const yAxis = new THREE.Vector3(0, 1, 0);
+  function place(mesh, index, x, y, z, sx = 1, sy = 1, sz = 1, base = personMatrix) {
+    partMatrix.compose(tmpV.set(x, y, z), tmpQ.identity(), tmpS.set(sx, sy, sz));
+    mesh.setMatrixAt(index, limbMatrix.multiplyMatrices(base, partMatrix));
+  }
+  // A limb hangs from a joint and swings forwards and back around it.
+  const xAxis = new THREE.Vector3(1, 0, 0);
+  const jointMatrix = new THREE.Matrix4();
+  const jointWorlds = [new THREE.Matrix4(), new THREE.Matrix4()];
+  const shoeTurn = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+  let jointSlot = 0;
+  // Reuses matrices every frame so walking people create no garbage (no GC hitches).
+  function swingLimb(mesh, index, jx, jy, jz, swing, length, sx = 1) {
+    jointMatrix.compose(tmpV.set(jx, jy, jz), tmpQ.setFromAxisAngle(xAxis, swing), tmpS.set(1, 1, 1));
+    const jointWorld = jointWorlds[jointSlot = 1 - jointSlot].multiplyMatrices(personMatrix, jointMatrix);
+    offsetMatrix.compose(tmpV.set(0, -length / 2, 0), tmpQ.identity(), tmpS.set(sx, 1, sx));
+    mesh.setMatrixAt(index, limbMatrix.multiplyMatrices(jointWorld, offsetMatrix));
+    return jointWorld;
+  }
   function updatePeople(dt, player) {
-    for (const p of people) {
-      // Wait politely if the kid is right in front of them
-      const blocked = Math.hypot(player.x - p.x, player.z - p.z) < 2.6;
-      const step = blocked ? 0 : p.speed * dt;
-      p.s = (p.s + step) % p.total;
+    people.forEach((p, i) => {
+      // Bumped by the player: topple over in the push direction, lie still, then get up again.
+      const distance = Math.hypot(player.x - p.x, player.z - p.z);
+      if (!p.fall && distance < player.reach && Math.abs(player.speed) > 0.8) {
+        const dx = p.x - player.x;
+        const dz = p.z - player.z;
+        const length = Math.hypot(dx, dz) || 1;
+        p.fall = { time: 0, dirX: dx / length, dirZ: dz / length, push: Math.min(6, 2 + Math.abs(player.speed)) };
+        world.onBump?.();
+      }
+      if (p.fall) {
+        updateFall(p, i, dt);
+        return;
+      }
+      const blocked = distance < 2.6;
+      if (!blocked) p.s = (p.s + p.speed * dt) % p.total;
       let rest = p.s;
       let seg = p.segments[0];
       for (const candidate of p.segments) {
@@ -725,16 +794,70 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
         rest -= candidate.length;
       }
       const t = seg.length ? rest / seg.length : 0;
-      p.x = seg.from[0] + (seg.to[0] - seg.from[0]) * t;
-      p.z = seg.from[1] + (seg.to[1] - seg.from[1]) * t;
-      p.person.position.set(p.x, 0, p.z);
+      const pathX = seg.from[0] + (seg.to[0] - seg.from[0]) * t;
+      const pathZ = seg.from[1] + (seg.to[1] - seg.from[1]) * t;
+      // After a fall they walk back onto their path
+      p.offsetX = THREE.MathUtils.damp(p.offsetX || 0, 0, 1.5, dt);
+      p.offsetZ = THREE.MathUtils.damp(p.offsetZ || 0, 0, 1.5, dt);
+      p.x = pathX + p.offsetX;
+      p.z = pathZ + p.offsetZ;
       const heading = Math.atan2(seg.to[0] - seg.from[0], seg.to[1] - seg.from[1]);
-      p.person.rotation.y = THREE.MathUtils.lerp(p.person.rotation.y, p.person.rotation.y + Math.atan2(Math.sin(heading - p.person.rotation.y), Math.cos(heading - p.person.rotation.y)), Math.min(1, dt * 8));
-      if (!blocked) p.phase += dt * p.speed * 4.2;
-      const swing = blocked ? 0 : Math.sin(p.phase) * 0.45;
-      p.legs[0].rotation.x = swing;
-      p.legs[1].rotation.x = -swing;
-      p.person.position.y = blocked ? 0 : Math.abs(Math.sin(p.phase)) * 0.05;
+      p.heading += Math.atan2(Math.sin(heading - p.heading), Math.cos(heading - p.heading)) * Math.min(1, dt * 7);
+      if (!blocked) p.phase += dt * p.speed * 3.6;
+      const walk = blocked ? 0 : 1;
+      const swing = Math.sin(p.phase) * 0.5 * walk;
+      const bob = Math.abs(Math.cos(p.phase)) * 0.05 * walk;
+      personMatrix.compose(tmpV.set(p.x, bob, p.z), tmpQ.setFromAxisAngle(yAxis, p.heading), tmpS.set(p.build, p.height, p.build));
+      pose(p, i, swing, swing);
+    });
+    for (const mesh of Object.values(parts)) mesh.instanceMatrix.needsUpdate = true;
+  }
+  const fallAxis = new THREE.Vector3();
+  const fallQ = new THREE.Quaternion();
+  function updateFall(p, i, dt) {
+    const f = p.fall;
+    f.time += dt;
+    // Slide a little in the push direction while tipping over
+    const slide = Math.max(0, 1 - f.time / 0.7) * f.push * dt;
+    p.offsetX = (p.offsetX || 0) + f.dirX * slide;
+    p.offsetZ = (p.offsetZ || 0) + f.dirZ * slide;
+    p.x += f.dirX * slide;
+    p.z += f.dirZ * slide;
+    // 0-0.5 s topple, lie until 2.4 s, stand back up by 3.4 s
+    let tip;
+    if (f.time < 0.5) {
+      const k = f.time / 0.5;
+      tip = 1 - (1 - k) * (1 - k);
+      tip += Math.sin(k * Math.PI) * 0.08; // little bounce as they land
+    } else if (f.time < 2.4) tip = 1 + Math.sin((f.time - 0.5) * 9) * 0.015 * Math.max(0, 1 - (f.time - 0.5) * 2);
+    else tip = Math.max(0, 1 - (f.time - 2.4) / 1);
+    const angle = tip * Math.PI * 0.47;
+    fallAxis.set(f.dirZ, 0, -f.dirX); // tip away from the player
+    fallQ.setFromAxisAngle(fallAxis, angle).multiply(tmpQ.setFromAxisAngle(yAxis, p.heading));
+    personMatrix.compose(tmpV.set(p.x, Math.sin(angle) * 0.22, p.z), fallQ, tmpS.set(p.build, p.height, p.build));
+    // Arms and legs flail, then relax while lying down
+    const flail = f.time < 0.9 ? Math.sin(f.time * 22) * 0.9 : 0.6 * tip;
+    pose(p, i, flail, -0.35 * tip, true);
+    if (f.time > 3.4) p.fall = null;
+  }
+  // Place every body part for one person, arms and legs at the given swing.
+  function pose(p, i, armSwing, legSwing, spread = false) {
+    place(parts.hips, i, 0, 1.02, 0, 1, 1, 0.75);
+    place(parts.torso, i, 0, 1.52, 0, 1.05, 1, 0.72);
+    place(parts.neck, i, 0, 1.97, 0);
+    place(parts.head, i, 0, 2.2, 0.01, 0.92, 1.08, 1);
+    place(parts.hair, i, 0, 2.23, -0.015, 1, 1, 1.02);
+    place(parts.eyes, i * 2, -0.07, 2.23, 0.18);
+    place(parts.eyes, i * 2 + 1, 0.07, 2.23, 0.18);
+    if (p.ponytail) place(parts.ponytail, i, 0, 2.08, -0.22);
+    else parts.ponytail.setMatrixAt(i, hidden);
+    for (const [k, side] of [[0, -1], [1, 1]]) {
+      const hip = swingLimb(parts.leg, i * 2 + k, side * 0.12, 0.98, 0, spread ? legSwing * (k ? 1 : -0.6) : side * legSwing, 0.92);
+      offsetMatrix.compose(tmpV.set(0, -0.93, 0.07), tmpQ.identity(), tmpS.set(1.1, 1, 1));
+      parts.shoe.setMatrixAt(i * 2 + k, limbMatrix.multiplyMatrices(hip, offsetMatrix).multiply(shoeTurn));
+      const shoulder = swingLimb(parts.arm, i * 2 + k, side * 0.34, 1.86, 0, spread ? armSwing * side - 1.2 : -side * armSwing * 0.8, 0.66);
+      offsetMatrix.compose(tmpV.set(0, -0.7, 0), tmpQ.identity(), tmpS.set(1, 1, 1));
+      parts.hand.setMatrixAt(i * 2 + k, limbMatrix.multiplyMatrices(shoulder, offsetMatrix));
     }
   }
 
@@ -769,21 +892,55 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
   mergeStatic(paving);
 
   // ---- Collision test ----
+  // Static colliders are sorted into a grid so each test only looks at nearby ones.
+  const CELL = 8;
+  const grid = new Map();
+  const cellKey = (cx, cz) => cx * 100003 + cz;
+  function addToGrid(item, minX, maxX, minZ, maxZ) {
+    for (let cx = Math.floor(minX / CELL); cx <= Math.floor(maxX / CELL); cx++) {
+      for (let cz = Math.floor(minZ / CELL); cz <= Math.floor(maxZ / CELL); cz++) {
+        const key = cellKey(cx, cz);
+        if (!grid.has(key)) grid.set(key, { boxes: [], circles: [] });
+        grid.get(key)[item.r === undefined ? 'boxes' : 'circles'].push(item);
+      }
+    }
+  }
+  for (const b of boxes) addToGrid(b, b.minX, b.maxX, b.minZ, b.maxZ);
+  for (const c of circles) addToGrid(c, c.x - c.r, c.x + c.r, c.z - c.r, c.z + c.r);
+  const nearbyBoxes = [];
+  const nearbyCircles = [];
+  const seen = new Set();
+  function gather(cx, cz, radius) {
+    nearbyBoxes.length = 0;
+    nearbyCircles.length = 0;
+    seen.clear();
+    for (let gx = Math.floor((cx - radius - 1) / CELL); gx <= Math.floor((cx + radius + 1) / CELL); gx++) {
+      for (let gz = Math.floor((cz - radius - 1) / CELL); gz <= Math.floor((cz + radius + 1) / CELL); gz++) {
+        const cell = grid.get(cellKey(gx, gz));
+        if (!cell) continue;
+        for (const b of cell.boxes) if (!seen.has(b)) { seen.add(b); nearbyBoxes.push(b); }
+        for (const c of cell.circles) if (!seen.has(c)) { seen.add(c); nearbyCircles.push(c); }
+      }
+    }
+  }
   const dynamicCircles = [];
+  const SMALL_BODY = [[0, 0.75]];
+  const CAR_BODY = [[-1.9, 1.1], [0, 1.2], [1.9, 1.1]];
   function penetration(x, z, heading, small) {
-    const along = small ? [[0, 0.75]] : [[-1.9, 1.1], [0, 1.2], [1.9, 1.1]];
+    const along = small ? SMALL_BODY : CAR_BODY;
     const localX = x - OFFSET_X;
     let deepest = Math.max(0, BOUNDS.minX - localX, localX - BOUNDS.maxX, BOUNDS.minZ - z, z - BOUNDS.maxZ);
+    gather(x, z, small ? 1 : 3.2);
     for (const [offset, radius] of along) {
       const cx = x + Math.sin(heading) * offset;
       const cz = z + Math.cos(heading) * offset;
-      for (const b of boxes) {
+      for (const b of nearbyBoxes) {
         if (cx < b.minX - radius || cx > b.maxX + radius || cz < b.minZ - radius || cz > b.maxZ + radius) continue;
         const dx = cx - THREE.MathUtils.clamp(cx, b.minX, b.maxX);
         const dz = cz - THREE.MathUtils.clamp(cz, b.minZ, b.maxZ);
         deepest = Math.max(deepest, radius - Math.hypot(dx, dz));
       }
-      for (const list of [circles, dynamicCircles]) {
+      for (const list of [nearbyCircles, dynamicCircles]) {
         for (const c of list) {
           const reach = radius + c.r;
           const dx = cx - c.x;
@@ -800,7 +957,7 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
   const playerLocal = { x: 0, z: 0 };
   const scratchPlayer = new THREE.Vector3();
   const scratchCamera = new THREE.Vector3();
-  return {
+  const world = {
     group,
     spawn: { x: OFFSET_X + MCD_ORIGIN[0], z: MCD_ORIGIN[1] + 21, heading: Math.PI },
     // Moving is blocked when it would push further into something; backing out is always allowed.
@@ -812,7 +969,7 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
       traffic.setCarModel(root, meshes, paintMaterial);
     },
     // Advance traffic and lights, open doors, and report whether the player is indoors.
-    update(dt, player, camera) {
+    update(dt, player, camera, playerSpeed = 0, small = true) {
       clock += dt;
       playerLocal.x = player.x - OFFSET_X;
       playerLocal.z = player.z;
@@ -820,11 +977,10 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
       for (const axis of ['ns', 'ew']) {
         for (const color of ['red', 'yellow', 'green']) lightMaterials[axis][color].emissiveIntensity = light[axis] === color ? 2.4 : 0;
       }
+      playerLocal.speed = playerSpeed;
+      playerLocal.reach = small ? 1.1 : 2.2;
       updatePeople(dt, playerLocal);
-      dynamicCircles.length = 0;
-      traffic.solidCircles(dynamicCircles);
-      for (const p of people) dynamicCircles.push({ x: p.x, z: p.z, r: 0.45 });
-      for (const circle of dynamicCircles) circle.x += OFFSET_X;
+      traffic.solidCircles(dynamicCircles, OFFSET_X);
       for (const brush of washBrushes) brush.rotation.y += dt * 6;
       // Each building works in its own coordinates, whichever way it is turned.
       let indoors = false;
@@ -836,4 +992,5 @@ export function createOpenWorld({ environments, asphaltTexture, grassMaterial, m
       return indoors;
     },
   };
+  return world;
 }

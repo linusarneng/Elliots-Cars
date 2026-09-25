@@ -204,8 +204,9 @@ export function createTraffic({ loops, lightNode, signNodes, parkedSpots, random
       // Keep a gap to anything in front: other cars and the player.
       const fx = Math.sin(car.heading);
       const fz = Math.cos(car.heading);
-      const obstacles = player ? [...cars, player] : cars;
-      for (const other of obstacles) {
+      for (let o = 0; o <= cars.length; o++) {
+        const other = o < cars.length ? cars[o] : player;
+        if (!other) continue;
         if (other === car) continue;
         const dx = other.x - car.x;
         const dz = other.z - car.z;
@@ -246,12 +247,21 @@ export function createTraffic({ loops, lightNode, signNodes, parkedSpots, random
   }
 
   // Solid circles for the player's collision test (three along each car).
-  function solidCircles(out) {
-    for (const car of [...cars, ...parked]) {
+  // Fills (and reuses) the player's collision list: three circles along each car.
+  const allCars = [...cars, ...parked];
+  function solidCircles(out, offsetX = 0) {
+    let n = 0;
+    for (const car of allCars) {
       const fx = Math.sin(car.heading);
       const fz = Math.cos(car.heading);
-      for (const offset of [-1.9, 0, 1.9]) out.push({ x: car.x + fx * offset, z: car.z + fz * offset, r: 1.15 });
+      for (let k = -1; k <= 1; k++) {
+        const circle = out[n] || (out[n] = { x: 0, z: 0, r: 1.15 });
+        circle.x = car.x + fx * k * 1.9 + offsetX;
+        circle.z = car.z + fz * k * 1.9;
+        n++;
+      }
     }
+    out.length = n;
     return out;
   }
 
