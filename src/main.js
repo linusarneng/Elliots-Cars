@@ -43,7 +43,7 @@ function mergeStatic(root, keep = []) {
   for (const object of keep) object.traverse((child) => kept.add(child));
   const buckets = new Map();
   root.traverse((mesh) => {
-    if (!mesh.isMesh || mesh.isSkinnedMesh || kept.has(mesh) || Array.isArray(mesh.material)) return;
+    if (!mesh.isMesh || mesh.isSkinnedMesh || mesh.isInstancedMesh || kept.has(mesh) || Array.isArray(mesh.material)) return;
     if (Object.keys(mesh.geometry.morphAttributes).length) return;
     const names = Object.keys(mesh.geometry.attributes).sort();
     const signature = names.map((name) => {
@@ -690,6 +690,7 @@ boundary(mcdonaldsEnvironment, mcdRed, 'fence');
 
 function smallHouse(parent, x, z, wallColor, roofColor, size = 1) {
   const group = new THREE.Group();
+  group.userData.filler = true;
   group.position.set(x, 0, z);
   group.scale.setScalar(size);
   parent.add(group);
@@ -729,12 +730,14 @@ function roadsideTree(parent, x, z, scale = 1) {
   trunk.position.set(x, 1.8 * scale, z);
   trunk.scale.setScalar(scale);
   trunk.castShadow = true;
+  trunk.userData.filler = true;
   parent.add(trunk);
   for (const [dx, dy, dz, radius] of [[0, 4.1, 0, 2.2], [-1.1, 3.4, 0.3, 1.5], [1, 3.6, -0.2, 1.45]]) {
     const crown = new THREE.Mesh(treeCrown, foliageMaterials[Math.floor(random() * foliageMaterials.length)]);
     crown.position.set(x + dx * scale, dy * scale, z + dz * scale);
     crown.scale.set(radius * scale, radius * 0.9 * scale, radius * scale);
     crown.castShadow = true;
+    crown.userData.filler = true;
     parent.add(crown);
   }
 }
@@ -751,19 +754,21 @@ for (let i = 0; i < 22; i++) {
   roundaboutEnvironment.add(flower);
 }
 for (const [x, z] of [[-10, 25.4], [4, 25.4], [18, 25.4]]) {
-  box(garageEnvironment, 2.2, 0.45, 0.9, boundaryStone, x, 0.23, z - 0.5);
-  box(garageEnvironment, 2.05, 0.6, 0.75, boundaryLeaf, x, 0.63, z - 0.5);
+  box(garageEnvironment, 2.2, 0.45, 0.9, boundaryStone, x, 0.23, z - 0.5).userData.filler = true;
+  box(garageEnvironment, 2.05, 0.6, 0.75, boundaryLeaf, x, 0.63, z - 0.5).userData.filler = true;
 }
 for (const [x, z] of [[-11, 25.2], [3, 25.2], [17, 25.2]]) {
-  box(storeEnvironment, 2.7, 0.48, 1.05, boundaryBlue, x, 0.24, z - 0.4);
-  box(storeEnvironment, 2.5, 0.75, 0.86, boundaryLeaf, x, 0.73, z - 0.4);
+  box(storeEnvironment, 2.7, 0.48, 1.05, boundaryBlue, x, 0.24, z - 0.4).userData.filler = true;
+  box(storeEnvironment, 2.5, 0.75, 0.86, boundaryLeaf, x, 0.73, z - 0.4).userData.filler = true;
 }
 const lampGlow = new THREE.MeshBasicMaterial({ color: '#fff3cd' });
 const lampPoleMaterial = new THREE.MeshStandardMaterial({ color: '#aeb9b7', metalness: 0.58, roughness: 0.46 });
 function streetLamp(parent, x, z) {
-  box(parent, 0.15, 6.8, 0.15, lampPoleMaterial, x, 3.4, z);
-  box(parent, 1.15, 0.16, 0.35, lampPoleMaterial, x - 0.5, 6.76, z);
-  box(parent, 0.8, 0.09, 0.32, lampGlow, x - 0.58, 6.65, z, false);
+  for (const part of [
+    box(parent, 0.15, 6.8, 0.15, lampPoleMaterial, x, 3.4, z),
+    box(parent, 1.15, 0.16, 0.35, lampPoleMaterial, x - 0.5, 6.76, z),
+    box(parent, 0.8, 0.09, 0.32, lampGlow, x - 0.58, 6.65, z, false),
+  ]) part.userData.filler = true;
 }
 for (const z of [-3, 19]) streetLamp(garageEnvironment, 27.8, z);
 for (const z of [-2, 19]) streetLamp(storeEnvironment, 28.2, z);
@@ -917,6 +922,10 @@ new GLTFLoader().load(carUrl, (gltf) => {
   mergeStatic(model, reverseLampMeshes);
   volvoBody.add(model);
   car.updateMatrixWorld(true);
+  // The open world's traffic and parked cars reuse the Volvo's meshes.
+  const modelMeshes = [];
+  model.traverse((child) => { if (child.isMesh) modelMeshes.push(child); });
+  openWorld.setCarModel(car, modelMeshes, blackPaint);
   for (const lens of reverseLampMeshes) {
     const position = new THREE.Box3().setFromObject(lens).getCenter(new THREE.Vector3());
     car.worldToLocal(position);
@@ -1105,6 +1114,7 @@ const pointerRay = new THREE.Raycaster();
 const drivePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const startGround = new THREE.Vector3();
 const currentGround = new THREE.Vector3();
+const viewForward = new THREE.Vector3();
 function groundPoint(clientX, clientY, target) {
   const rect = canvas.getBoundingClientRect();
   pointerRay.setFromCamera(new THREE.Vector2(
@@ -1136,7 +1146,14 @@ function updateDrive(event) {
   if (input.source === canvas) {
     input.axisX = THREE.MathUtils.clamp((event.clientX - input.startX) / 115, -1, 1);
     input.axisY = THREE.MathUtils.clamp((event.clientY - input.startY) / 115, -1, 1);
-    if (groundPoint(input.startX, input.startY, startGround) && groundPoint(event.clientX, event.clientY, currentGround)) {
+    if (cameraMode !== 'top') {
+      // Low cameras look along the ground, so steer relative to the view: up on screen is straight ahead.
+      camera.getWorldDirection(viewForward);
+      viewForward.y = 0;
+      viewForward.normalize();
+      input.dragX = (-viewForward.z * input.axisX - viewForward.x * input.axisY) * 10;
+      input.dragZ = (viewForward.x * input.axisX - viewForward.z * input.axisY) * 10;
+    } else if (groundPoint(input.startX, input.startY, startGround) && groundPoint(event.clientX, event.clientY, currentGround)) {
       input.dragX = currentGround.x - startGround.x;
       input.dragZ = currentGround.z - startGround.z;
     }
@@ -1270,6 +1287,13 @@ function beginLevel(number) {
   crashParticles.length = 0;
   document.querySelector('#crash-feedback').hidden = true;
   level = number > levels.length ? 1 : number;
+  if (openWorldActive) {
+    cameraMode = 'top';
+    lookYaw = 0;
+    lookPitch = 0;
+    lookDistance = 1;
+    showCameraButton();
+  }
   openWorldActive = false;
   openWorld.group.visible = false;
   for (const object of [routeGroup, coneGroup, islandGroup, ...parkedCars]) object.visible = true;
@@ -1318,8 +1342,116 @@ function beginLevel(number) {
   document.querySelector('#next-level').innerHTML = level === levels.length ? 'Play again <span aria-hidden="true">↻</span>' : 'Next level <span aria-hidden="true">➜</span>';
   cameraZoom = vehicle === 'bobby' ? 0.55 : 1;
   camera.position.set(startX + 10 * cameraZoom, 25 * cameraZoom, startZ + 22 * cameraZoom);
+  lookTarget.set(startX, 0, startZ);
   camera.lookAt(startX, 0, startZ);
 }
+// ---- Camera: top-down, chase (behind the player) or close, with look-around ----
+const CAMERA_MODES = ['top', 'chase', 'near'];
+let cameraMode = 'top';
+let lookYaw = 0;
+let lookPitch = 0;
+let lookDistance = 1;
+let lookIdle = 0;
+const lookTarget = new THREE.Vector3();
+const cameraToggle = document.querySelector('#camera-toggle');
+function showCameraButton() {
+  const labels = { top: 'Camera: from above', chase: 'Camera: behind', near: 'Camera: close up' };
+  cameraToggle.textContent = { top: '🛰️', chase: '🎥', near: '👀' }[cameraMode];
+  cameraToggle.setAttribute('aria-label', labels[cameraMode]);
+  cameraToggle.title = labels[cameraMode];
+}
+cameraToggle.addEventListener('click', () => {
+  cameraMode = CAMERA_MODES[(CAMERA_MODES.indexOf(cameraMode) + 1) % CAMERA_MODES.length];
+  lookYaw = 0;
+  lookPitch = 0;
+  lookDistance = 1;
+  showCameraButton();
+  cameraToggle.blur();
+});
+showCameraButton();
+function turnView(amount) {
+  lookYaw += amount;
+  lookIdle = 0;
+}
+function updateCamera(dt) {
+  if (keys.has('q')) turnView(1.8 * dt);
+  if (keys.has('e')) turnView(-1.8 * dt);
+  lookIdle += dt;
+  // Like in GTA: after looking around, the view drifts back behind the player once you drive on.
+  if (cameraMode !== 'top' && lookIdle > 2.5 && Math.abs(speed) > 1) lookYaw = THREE.MathUtils.damp(lookYaw, 0, 1.5, dt);
+  // Zoom in on the small bobby car, and ease between the two views when switching.
+  cameraZoom = THREE.MathUtils.damp(cameraZoom, vehicle === 'bobby' ? 0.55 : 1, 3, dt);
+  if (cameraMode === 'top') {
+    lookGoal.set(car.position.x + Math.sin(car.rotation.y) * 0.8, 0, car.position.z + Math.cos(car.rotation.y) * 0.8);
+    const reach = cameraZoom * lookDistance;
+    const offsetX = 10 * Math.cos(lookYaw) + 22 * Math.sin(lookYaw);
+    const offsetZ = -10 * Math.sin(lookYaw) + 22 * Math.cos(lookYaw);
+    cameraGoal.set(lookGoal.x + offsetX * reach, 25 * reach + lookPitch, lookGoal.z + offsetZ * reach);
+    camera.position.lerp(cameraGoal, 1 - Math.exp(-5 * dt));
+    lookTarget.lerp(lookGoal, 1 - Math.exp(-12 * dt));
+    return;
+  }
+  const small = vehicle === 'bobby';
+  const [distance, height] = cameraMode === 'chase' ? (small ? [5.5, 3.1] : [11, 4.6]) : (small ? [2.7, 2.2] : [5.6, 2.7]);
+  const yaw = car.rotation.y + lookYaw;
+  cameraGoal.set(
+    car.position.x - Math.sin(yaw) * distance * lookDistance,
+    Math.max(0.6, height * lookDistance + lookPitch),
+    car.position.z - Math.cos(yaw) * distance * lookDistance,
+  );
+  const ahead = small ? 2.2 : 4;
+  lookGoal.set(car.position.x + Math.sin(yaw) * ahead, small ? 1.3 : 1.5, car.position.z + Math.cos(yaw) * ahead);
+  camera.position.lerp(cameraGoal, 1 - Math.exp(-7 * dt));
+  lookTarget.lerp(lookGoal, 1 - Math.exp(-10 * dt));
+}
+// Two fingers look around (swipe to turn, up/down to tilt, pinch to zoom);
+// on a computer: right-drag to turn, scroll to zoom, Q/E to turn.
+const lookPointers = new Map();
+let lookGesture = null;
+function gestureState() {
+  const points = [...lookPointers.values()];
+  const cx = (points[0].x + points[1].x) / 2;
+  const cy = (points[0].y + points[1].y) / 2;
+  return { cx, cy, spread: Math.max(20, Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y)) };
+}
+canvas.addEventListener('pointerdown', (event) => {
+  lookPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (lookPointers.size === 2) {
+    endDrive();
+    lookGesture = gestureState();
+  }
+});
+canvas.addEventListener('pointermove', (event) => {
+  if (!lookPointers.has(event.pointerId)) return;
+  lookPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (lookPointers.size >= 2 && lookGesture) {
+    const now = gestureState();
+    turnView(-(now.cx - lookGesture.cx) * 0.009);
+    lookPitch = THREE.MathUtils.clamp(lookPitch + (now.cy - lookGesture.cy) * 0.025, -2, 8);
+    lookDistance = THREE.MathUtils.clamp(lookDistance * lookGesture.spread / now.spread, 0.5, 2);
+    lookGesture = now;
+  }
+});
+for (const type of ['pointerup', 'pointercancel']) {
+  canvas.addEventListener(type, (event) => {
+    lookPointers.delete(event.pointerId);
+    if (lookPointers.size < 2) lookGesture = null;
+  });
+}
+let mouseLook = null;
+canvas.addEventListener('contextmenu', (event) => event.preventDefault());
+canvas.addEventListener('mousedown', (event) => { if (event.button === 2) mouseLook = event.clientX; });
+window.addEventListener('mousemove', (event) => {
+  if (mouseLook === null) return;
+  turnView(-(event.clientX - mouseLook) * 0.008);
+  mouseLook = event.clientX;
+});
+window.addEventListener('mouseup', (event) => { if (event.button === 2) mouseLook = null; });
+canvas.addEventListener('wheel', (event) => {
+  event.preventDefault();
+  lookDistance = THREE.MathUtils.clamp(lookDistance * (1 + event.deltaY * 0.001), 0.5, 2);
+}, { passive: false });
+
 // ---- Open world: drive freely between all the level locations ----
 let openWorldActive = false;
 const mapToggle = document.querySelector('#map-toggle');
@@ -1339,6 +1471,15 @@ function enterOpenWorld() {
   for (const object of [garageEnvironment, storeEnvironment, mcdonaldsEnvironment, roundaboutEnvironment, outerParkingLines,
     goalMarker, parkingMarker, checkpointMarker, routeGroup, coneGroup, islandGroup, guideArrow, ...parkedCars]) object.visible = false;
   openWorld.group.visible = true;
+  // You arrive as the kid on the bobby car, outside McDonald's, with the camera behind you.
+  vehicle = 'bobby';
+  try { localStorage.setItem('vehicle', vehicle); } catch {}
+  showVehicle();
+  cameraMode = 'chase';
+  lookYaw = 0;
+  lookPitch = 0;
+  lookDistance = 1;
+  showCameraButton();
   scene.background.set('#b3d2de');
   scene.fog.color.set('#b3d2de');
   car.position.set(openWorld.spawn.x, 0, openWorld.spawn.z);
@@ -1347,8 +1488,9 @@ function enterOpenWorld() {
   endDrive();
   document.querySelector('#level-badge').textContent = 'Open world';
   canvas.setAttribute('aria-label', 'Drive the black Volvo anywhere in the open world');
-  cameraZoom = vehicle === 'bobby' ? 0.55 : 1;
-  camera.position.set(car.position.x + 10 * cameraZoom, 25 * cameraZoom, car.position.z + 22 * cameraZoom);
+  cameraZoom = 0.55;
+  camera.position.set(car.position.x - Math.sin(car.rotation.y) * 6, 3.5, car.position.z - Math.cos(car.rotation.y) * 6);
+  lookTarget.set(car.position.x, 1.3, car.position.z);
   refreshReflections();
   showMapButton();
 }
@@ -1671,17 +1813,14 @@ function animate() {
       guideArrow.rotation.z += angleDifference * blend;
     }
   }
-  lookGoal.set(car.position.x + Math.sin(car.rotation.y) * 0.8, 0, car.position.z + Math.cos(car.rotation.y) * 0.8);
-  // Zoom in on the small bobby car, and ease between the two views when switching.
-  cameraZoom = THREE.MathUtils.damp(cameraZoom, vehicle === 'bobby' ? 0.55 : 1, 3, dt);
-  cameraGoal.set(lookGoal.x + 10 * cameraZoom, 25 * cameraZoom, lookGoal.z + 22 * cameraZoom);
-  camera.position.lerp(cameraGoal, 1 - Math.exp(-5 * dt));
+  if (openWorldActive) openWorld.update(dt, car.position, camera.position);
+  updateCamera(dt);
   if (crashing) {
     const shake = Math.exp(-7 * crashTime);
     camera.position.x += Math.sin(crashTime * 34) * 0.17 * shake;
     camera.position.z += Math.cos(crashTime * 31) * 0.13 * shake;
   }
-  camera.lookAt(lookGoal);
+  camera.lookAt(lookTarget);
   // Keep the sun's shadow area centred on the car wherever it drives.
   sun.target.position.set(car.position.x, 0, car.position.z);
   sun.position.set(car.position.x - 28, 45, car.position.z + 20);
@@ -1689,7 +1828,7 @@ function animate() {
 }
 const openWorld = createOpenWorld({
   environments: { garage: garageEnvironment, store: storeEnvironment, mcdonalds: mcdonaldsEnvironment, roundabout: roundaboutEnvironment },
-  asphaltTexture, grassMaterial: ground.material, lineMaterial: paintLine, mergeStatic, random,
+  asphaltTexture, grassMaterial: ground.material, mergeStatic, random, signTexture: mcdSignTexture, archesTexture,
 });
 scene.add(openWorld.group);
 for (const environment of [garageEnvironment, storeEnvironment, mcdonaldsEnvironment, roundaboutEnvironment]) {
